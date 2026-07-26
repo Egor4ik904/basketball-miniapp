@@ -2,8 +2,18 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- viewport-fit=cover — чтобы приложение занимало весь экран, включая
+       зону под чёлкой; user-scalable=no — Telegram не масштабируется жестами -->
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
   <title>Баскетбольный центр</title>
+
+  <!-- SDK Telegram Mini Apps. Даёт доступ к теме пользователя, кнопке «Назад»,
+       развороту на весь экран. Грузится до нашего кода, поэтому к моменту его
+       запуска объект Telegram.WebApp уже готов. Вне Telegram скрипт просто
+       ничего не делает, и приложение работает как обычный сайт. -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>

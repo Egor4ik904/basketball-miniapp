@@ -26,6 +26,92 @@ function safeUrl(value) {
 
 const root = document.getElementById("app");
 
+// ===== Telegram Mini App =====
+// Объект появляется, только когда приложение открыто внутри Telegram.
+// Вне Telegram (обычный браузер) tg === undefined, и всё, что ниже, тихо
+// пропускается — сайт работает как раньше.
+const tg = window.Telegram && window.Telegram.WebApp;
+
+// Стек возврата. Каждый переход на новый экран кладёт сюда функцию «как
+// вернуться на предыдущий». И наша нарисованная кнопка «Назад», и системная
+// кнопка Telegram снимают верхний элемент — поведение у них общее.
+const backStack = [];
+
+function goBack() {
+  const step = backStack.pop();
+  if (step) step();
+  syncBackButton();
+}
+
+// Регистрирует экран в истории: fn — как вернуться на ТЕКУЩИЙ экран,
+// перед тем как уйти на следующий.
+function pushHistory(fn) {
+  backStack.push(fn);
+  syncBackButton();
+}
+
+function resetHistory() {
+  backStack.length = 0;
+  syncBackButton();
+}
+
+// Показывает или прячет системную кнопку «Назад» в шапке Telegram —
+// смотря есть ли куда возвращаться.
+function syncBackButton() {
+  if (!tg || !tg.BackButton) return;
+  if (backStack.length > 0) tg.BackButton.show();
+  else tg.BackButton.hide();
+}
+
+function initTelegram() {
+  if (!tg) return;                 // не в Telegram — выходим
+
+  tg.ready();                      // сообщаем Telegram, что готовы
+  tg.expand();                     // разворачиваем на всю высоту
+
+  // Системная кнопка «Назад» делает то же, что наша нарисованная.
+  if (tg.BackButton) {
+    tg.BackButton.onClick(goBack);
+  }
+
+  applyTelegramTheme();
+  // Тема может смениться на лету (пользователь переключил светлую/тёмную) —
+  // подхватываем.
+  tg.onEvent("themeChanged", applyTelegramTheme);
+}
+
+// Переносит цвета из темы Telegram в наши CSS-переменные, чтобы приложение
+// выглядело как часть мессенджера, а не инородно. Если какого-то цвета
+// Telegram не прислал, остаётся наш исходный из style.css.
+function applyTelegramTheme() {
+  if (!tg) return;
+  const p = tg.themeParams || {};
+  const root = document.documentElement.style;
+
+  const map = {
+    "--bg": p.bg_color,
+    "--card": p.secondary_bg_color,
+    "--text": p.text_color,
+    "--muted": p.hint_color,
+    "--accent": p.button_color,
+  };
+  for (const [name, value] of Object.entries(map)) {
+    if (value) root.setProperty(name, value);
+  }
+
+  // «Поднятые» поверхности (карточки при наведении) делаем чуть светлее фона
+  // карточки — в чужой теме подобрать точный оттенок нельзя, берём сам фон.
+  if (p.secondary_bg_color) root.setProperty("--card-hover", p.secondary_bg_color);
+
+  // Цвет шапки и фон окна Telegram — в тон приложению.
+  try {
+    if (p.bg_color) {
+      tg.setHeaderColor(p.bg_color);
+      tg.setBackgroundColor(p.bg_color);
+    }
+  } catch (e) { /* старые версии Telegram — не критично */ }
+}
+
 async function api(path) {
   const res = await fetch(path);
   const json = await res.json();
@@ -102,6 +188,7 @@ const NEWS_PAGE = 20;             // размер страницы новост�
 
 // ===== Главный экран: список лиг =====
 async function showHome() {
+  resetHistory();
   root.innerHTML = `
     <header class="app-header">
       <h1>🏀 Баскетбол</h1>
@@ -123,7 +210,7 @@ async function showHome() {
           <div class="league-season">Сезон ${esc(league.season_label)}</div>
         </div>
         <div class="arrow">›</div>`;
-      card.addEventListener("click", () => showLeague(league));
+      card.addEventListener("click", () => { pushHistory(showHome); showLeague(league); });
       box.appendChild(card);
     }
   } catch (e) {
@@ -146,7 +233,7 @@ function showLeague(league, activeTab = "standings") {
     </nav>
     <main class="container"><div id="tab-content" class="muted">Загрузка…</div></main>
   `;
-  document.getElementById("back").addEventListener("click", showHome);
+  document.getElementById("back").addEventListener("click", goBack);
 
   const tabs = root.querySelectorAll(".tab");
   tabs.forEach(tab => {
@@ -652,12 +739,13 @@ function formatNewsDate(iso) {
 // returnTab — на какую вкладку лиги вернуться по кнопке «Назад»
 // (мы попадаем сюда и из списка матчей, и из сетки плей-офф).
 async function showBoxScore(game, league, returnTab = "games") {
+  pushHistory(() => showLeague(league, returnTab));
   const backLabel = returnTab === "standings" ? "‹ Плей-офф" : "‹ Матчи";
   root.innerHTML = `
     <header class="app-header"><button class="back" id="back">${backLabel}</button></header>
     <main class="container"><div id="box" class="muted">Загрузка…</div></main>
   `;
-  document.getElementById("back").addEventListener("click", () => showLeague(league, returnTab));
+  document.getElementById("back").addEventListener("click", goBack);
 
   try {
     renderBoxScore(await api(`/api/games/${game.id}/boxscore`), league);
@@ -782,6 +870,7 @@ function renderTeams(teams, league) {
 
 // ===== Экран команды: состав =====
 async function showTeam(team, league) {
+  pushHistory(() => showLeague(league, "teams"));
   root.innerHTML = `
     <header class="app-header">
       <button class="back" id="back">‹ ${esc(league.name)}</button>
@@ -789,7 +878,7 @@ async function showTeam(team, league) {
     </header>
     <main class="container"><div id="roster" class="muted">Загрузка…</div></main>
   `;
-  document.getElementById("back").addEventListener("click", () => showLeague(league, "teams"));
+  document.getElementById("back").addEventListener("click", goBack);
 
   try {
     renderRoster(await api(`/api/teams/${team.id}/roster`), team, league);
@@ -828,6 +917,7 @@ function renderRoster(players, team, league) {
 
 // ===== Экран игрока: статистика за сезон =====
 async function showPlayer(player, team, league) {
+  pushHistory(() => showTeam(team, league));
   root.innerHTML = `
     <header class="app-header"><button class="back" id="back">‹ ${esc(team.name)}</button></header>
     <main class="container">
@@ -839,7 +929,7 @@ async function showPlayer(player, team, league) {
       <div id="stats" class="muted">Загрузка статистики…</div>
     </main>
   `;
-  document.getElementById("back").addEventListener("click", () => showTeam(team, league));
+  document.getElementById("back").addEventListener("click", goBack);
 
   try {
     renderStats(await api(`/api/players/${player.id}/stats`));
@@ -891,4 +981,5 @@ function renderStats(stats) {
 }
 
 // старт приложения
+initTelegram();
 showHome();
