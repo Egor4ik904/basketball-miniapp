@@ -1,0 +1,894 @@
+// static/js/app.js
+// Экраны: главная -> лига (вкладки) -> команда -> игрок; матч -> box score.
+// Вкладка «Таблица» разделена на две: регулярный чемпионат и сетка плей-офф.
+
+// ===== Безопасность вывода =====
+// Разметку мы собираем строками, а данные приходят из чужих источников:
+// заголовки новостей — из RSS, имена и названия — из API лиг. Если в них
+// окажется HTML, браузер его выполнит. Поэтому ВСЁ, что подставляется
+// в разметку, проходит через esc(), а ссылки — через safeUrl().
+function esc(value) {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Пропускаем только http и https: ссылка вида javascript:... из чужой ленты
+// выполнила бы код при нажатии.
+function safeUrl(value) {
+  const url = String(value || "").trim();
+  return /^https?:\/\//i.test(url) ? url : "";
+}
+
+const root = document.getElementById("app");
+
+async function api(path) {
+  const res = await fetch(path);
+  const json = await res.json();
+  return json.data;
+}
+
+// --- помощники для дат ---
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function addDays(dateStr, delta) {
+  const d = new Date(dateStr + "T12:00:00");
+  d.setDate(d.getDate() + delta);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function formatTime(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function formatShortDate(iso) {
+  // '2026-06-12' -> '12.06'
+  if (!iso || iso.length < 10) return "";
+  return `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+}
+
+// Когда фотографии нет (новичок, которого источник ещё не снял),
+// показываем кружок с инициалами — это лучше пустого места.
+function initials(name) {
+  return (name || "").trim().split(/\s+/).slice(0, 2)
+    .map(part => part[0] || "").join("").toUpperCase();
+}
+
+function avatarHtml(person, className) {
+  if (person.photo_url) {
+    // если ссылка окажется битой, прячем картинку и остаётся кружок-подложка
+    return `<img class="${className}" src="${safeUrl(person.photo_url)}" alt=""
+                 onerror="this.style.visibility='hidden'">`;
+  }
+  return `<div class="${className} avatar-fallback">${esc(initials(person.name))}</div>`;
+}
+
+const MONTHS_RU = ["января", "февраля", "марта", "апреля", "мая", "июня",
+                   "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+const WEEKDAYS_RU = ["воскресенье", "понедельник", "вторник", "среда",
+                     "четверг", "пятница", "суббота"];
+
+function formatDayTitle(iso) {
+  // '2026-06-12' -> '12 июня, пятница' (для сегодня/вчера/завтра — словами)
+  if (!iso || iso.length < 10) return "";
+  const today = todayStr();
+  const d = new Date(iso + "T12:00:00");
+  const diff = Math.round((d - new Date(today + "T12:00:00")) / 86400000);
+  if (diff === 0) return "Сегодня";
+  if (diff === -1) return "Вчера";
+  if (diff === 1) return "Завтра";
+  return `${d.getDate()} ${MONTHS_RU[d.getMonth()]}, ${WEEKDAYS_RU[d.getDay()]}`;
+}
+
+// Как ESPN называет конференции -> как показываем мы.
+const CONFERENCE_NAMES = {
+  "Eastern Conference": "Восток",
+  "Western Conference": "Запад",
+};
+
+let boxActiveTeam = 0;            // активная команда на экране матча
+let standingsSubTab = "table";    // «table» или «bracket» внутри вкладки «Таблица»
+let gamesSubTab = "results";      // «results», «schedule» или «date» внутри вкладки «Матчи»
+let gamesDate = todayStr();       // выбранный день в режиме «Дата»
+let gamesOffset = 0;              // сколько матчей уже показано (для «Показать ещё»)
+const GAMES_PAGE = 30;            // размер страницы списка матчей
+let newsOffset = 0;               // сколько новостей уже показано
+const NEWS_PAGE = 20;             // размер страницы новостей
+
+// ===== Главный экран: список лиг =====
+async function showHome() {
+  root.innerHTML = `
+    <header class="app-header">
+      <h1>🏀 Баскетбол</h1>
+      <p class="subtitle">Выбери лигу</p>
+    </header>
+    <main class="container"><div id="leagues" class="muted">Загрузка…</div></main>
+  `;
+  try {
+    const leagues = await api("/api/leagues");
+    const box = document.getElementById("leagues");
+    box.className = "card-list";
+    box.innerHTML = "";
+    for (const league of leagues) {
+      const card = document.createElement("div");
+      card.className = "league-card";
+      card.innerHTML = `
+        <div class="league-info">
+          <div class="league-name">${esc(league.name)}</div>
+          <div class="league-season">Сезон ${esc(league.season_label)}</div>
+        </div>
+        <div class="arrow">›</div>`;
+      card.addEventListener("click", () => showLeague(league));
+      box.appendChild(card);
+    }
+  } catch (e) {
+    document.getElementById("leagues").textContent = "Не удалось загрузить лиги 😕";
+  }
+}
+
+// ===== Экран лиги: вкладки =====
+function showLeague(league, activeTab = "standings") {
+  root.innerHTML = `
+    <header class="app-header">
+      <button class="back" id="back">‹ Назад</button>
+      <h1>${esc(league.name)}</h1>
+    </header>
+    <nav class="tabs">
+      <button class="tab" data-tab="standings">Таблица</button>
+      <button class="tab" data-tab="games">Матчи</button>
+      <button class="tab" data-tab="news">Новости</button>
+      <button class="tab" data-tab="teams">Команды</button>
+    </nav>
+    <main class="container"><div id="tab-content" class="muted">Загрузка…</div></main>
+  `;
+  document.getElementById("back").addEventListener("click", showHome);
+
+  const tabs = root.querySelectorAll(".tab");
+  tabs.forEach(tab => {
+    if (tab.dataset.tab === activeTab) tab.classList.add("active");
+    tab.addEventListener("click", () => {
+      tabs.forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      openTab(league, tab.dataset.tab);
+    });
+  });
+  openTab(league, activeTab);
+}
+
+async function openTab(league, tabName) {
+  const content = document.getElementById("tab-content");
+  content.className = "muted";
+  content.textContent = "Загрузка…";
+
+  if (tabName === "standings") {
+    showStandingsTab(league);
+  } else if (tabName === "teams") {
+    renderTeams(await api(`/api/leagues/${league.id}/teams`), league);
+  } else if (tabName === "games") {
+    showGames(league);
+  } else if (tabName === "news") {
+    showNews(league);
+  }
+}
+
+// ===== Вкладка «Таблица»: две под-вкладки =====
+function showStandingsTab(league) {
+  const content = document.getElementById("tab-content");
+  content.className = "";
+  content.innerHTML = `
+    <div class="subtabs">
+      <button class="subtab" data-sub="table">Регулярный чемпионат</button>
+      <button class="subtab" data-sub="bracket">Плей-офф</button>
+    </div>
+    <div id="sub-content" class="muted">Загрузка…</div>
+  `;
+
+  const subtabs = content.querySelectorAll(".subtab");
+  subtabs.forEach(btn => {
+    if (btn.dataset.sub === standingsSubTab) btn.classList.add("active");
+    btn.addEventListener("click", () => {
+      standingsSubTab = btn.dataset.sub;
+      subtabs.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      loadStandingsSub(league);
+    });
+  });
+
+  loadStandingsSub(league);
+}
+
+async function loadStandingsSub(league) {
+  const box = document.getElementById("sub-content");
+  box.className = "muted";
+  box.textContent = "Загрузка…";
+  try {
+    if (standingsSubTab === "bracket") {
+      renderBracket(await api(`/api/leagues/${league.id}/bracket`), league);
+    } else {
+      renderStandings(await api(`/api/leagues/${league.id}/standings`));
+    }
+  } catch (e) {
+    box.className = "muted";
+    box.textContent = "Не удалось загрузить данные 😕";
+  }
+}
+
+// ===== Под-вкладка «Регулярный чемпионат» =====
+function renderStandings(standings) {
+  const content = document.getElementById("sub-content");
+  if (!standings || standings.length === 0) {
+    content.className = "muted";
+    content.textContent = "Таблицы пока нет (данные появятся в сезон).";
+    return;
+  }
+  content.className = "";
+  content.innerHTML = "";
+
+  const byConf = {};
+  for (const row of standings) {
+    const c = row.conference || "Таблица";
+    (byConf[c] = byConf[c] || []).push(row);
+  }
+
+  for (const conf of Object.keys(byConf)) {
+    const title = document.createElement("h2");
+    title.className = "section-title";
+    title.textContent = CONFERENCE_NAMES[conf] || conf;
+    content.appendChild(title);
+
+    const table = document.createElement("div");
+    table.className = "standings";
+    table.innerHTML = `
+      <div class="st-row st-head">
+        <span class="st-rank">#</span><span class="st-team">Команда</span>
+        <span class="st-num">В</span><span class="st-num">П</span>
+      </div>`;
+    for (const row of byConf[conf]) {
+      const r = document.createElement("div");
+      r.className = "st-row";
+      r.innerHTML = `
+        <span class="st-rank">${esc(row.rank)}</span>
+        <span class="st-team"><img class="st-logo" src="${safeUrl(row.team_logo)}" alt="">${esc(row.team_short || row.team_name)}</span>
+        <span class="st-num">${esc(row.wins)}</span>
+        <span class="st-num">${esc(row.losses)}</span>`;
+      table.appendChild(r);
+    }
+    content.appendChild(table);
+  }
+}
+
+// ===== Под-вкладка «Плей-офф»: сетка =====
+function renderBracket(rounds, league) {
+  const box = document.getElementById("sub-content");
+  if (!rounds || rounds.length === 0) {
+    box.className = "muted";
+    box.textContent = "Плей-офф ещё не начался.";
+    return;
+  }
+  box.className = "";
+  box.innerHTML = "";
+
+  for (const round of rounds) {
+    const title = document.createElement("h2");
+    title.className = "section-title";
+    title.textContent = round.label;
+    box.appendChild(title);
+
+    // Внутри круга серии делим по конференциям (у NBA — Восток / Запад).
+    // Если конференций нет или она одна, заголовки не показываем.
+    const groups = new Map();
+    for (const series of round.series) {
+      const key = series.conference || "";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(series);
+    }
+    const showConfTitles = groups.size > 1;
+
+    for (const [conference, list] of groups) {
+      if (showConfTitles && conference) {
+        const sub = document.createElement("div");
+        sub.className = "conf-title";
+        sub.textContent = CONFERENCE_NAMES[conference] || conference;
+        box.appendChild(sub);
+      }
+      for (const series of list) {
+        box.appendChild(buildSeriesCard(series, league));
+      }
+    }
+  }
+}
+
+function buildSeriesCard(series, league) {
+  const card = document.createElement("div");
+  card.className = "series-card";
+
+  const teamRow = (team) => {
+    const isWinner = series.winner_id && series.winner_id === team.id;
+    return `
+      <div class="series-team${isWinner ? " winner" : ""}">
+        <span class="series-seed">${esc(team.seed)}</span>
+        <img class="series-logo" src="${safeUrl(team.logo_url)}" alt="">
+        <span class="series-name">${esc(team.short_name || team.name)}</span>
+        <span class="series-wins">${esc(team.wins)}</span>
+      </div>`;
+  };
+
+  const played = series.games.length;
+  const note = series.completed
+    ? "серия завершена"
+    : (played ? `сыграно матчей: ${played}` : "серия ещё не началась");
+
+  card.innerHTML = `
+    <div class="series-teams">
+      ${teamRow(series.team_a)}
+      ${teamRow(series.team_b)}
+    </div>
+    <div class="series-foot">
+      <span class="series-note">${esc(note)}</span>
+      <span class="series-toggle">Матчи ▾</span>
+    </div>
+    <div class="series-games hidden"></div>
+  `;
+
+  const gamesBox = card.querySelector(".series-games");
+  const toggleLabel = card.querySelector(".series-toggle");
+
+  card.querySelector(".series-foot").addEventListener("click", () => {
+    const nowHidden = gamesBox.classList.toggle("hidden");
+    toggleLabel.textContent = nowHidden ? "Матчи ▾" : "Матчи ▴";
+
+    // список матчей строим один раз, при первом раскрытии
+    if (!nowHidden && !gamesBox.dataset.filled) {
+      series.games.forEach((game, i) => {
+        const finished = game.status === "final";
+        const score = (game.score_a != null && game.score_b != null)
+          ? `${game.score_a} : ${game.score_b}` : "—";
+
+        const row = document.createElement("div");
+        row.className = "series-game" + (finished ? " clickable" : "");
+        row.innerHTML = `
+          <span class="sg-num">Матч ${i + 1}</span>
+          <span class="sg-date">${esc(formatShortDate(game.date))}</span>
+          <span class="sg-score">${esc(score)}</span>`;
+        if (finished) {
+          row.addEventListener("click", () => showBoxScore(game, league, "standings"));
+        }
+        gamesBox.appendChild(row);
+      });
+      gamesBox.dataset.filled = "1";
+    }
+  });
+
+  return card;
+}
+
+// ===== Вкладка «Матчи»: результаты и календарь =====
+function showGames(league) {
+  const content = document.getElementById("tab-content");
+  content.className = "";
+  content.innerHTML = `
+    <div class="subtabs">
+      <button class="subtab" data-sub="results">Результаты</button>
+      <button class="subtab" data-sub="schedule">Календарь</button>
+      <button class="subtab subtab-narrow" data-sub="date" title="Выбрать дату">📅</button>
+    </div>
+    <div id="date-bar" class="date-bar hidden">
+      <button class="date-nav" id="prev-day">‹</button>
+      <input type="date" id="date-input" value="${gamesDate}">
+      <button class="date-nav" id="next-day">›</button>
+    </div>
+    <div id="games-list" class="muted">Загрузка…</div>
+  `;
+
+  const subtabs = content.querySelectorAll(".subtab");
+  subtabs.forEach(btn => {
+    if (btn.dataset.sub === gamesSubTab) btn.classList.add("active");
+    btn.addEventListener("click", () => {
+      gamesSubTab = btn.dataset.sub;
+      subtabs.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      loadGames(league, true);
+    });
+  });
+
+  // панель дат: стрелки на день назад/вперёд и сам выбор дня
+  document.getElementById("prev-day").addEventListener("click", () => {
+    gamesDate = addDays(gamesDate, -1);
+    loadGamesByDate(league);
+  });
+  document.getElementById("next-day").addEventListener("click", () => {
+    gamesDate = addDays(gamesDate, 1);
+    loadGamesByDate(league);
+  });
+  document.getElementById("date-input").addEventListener("change", (e) => {
+    gamesDate = e.target.value;
+    loadGamesByDate(league);
+  });
+
+  loadGames(league, true);
+}
+
+// Режим «Дата»: матчи одного выбранного дня.
+async function loadGamesByDate(league) {
+  const box = document.getElementById("games-list");
+  document.getElementById("date-input").value = gamesDate;
+  box.className = "muted";
+  box.textContent = "Загрузка…";
+
+  try {
+    const games = await api(`/api/leagues/${league.id}/games?date=${gamesDate}`);
+    if (!games || games.length === 0) {
+      box.className = "muted";
+      box.textContent = "На эту дату матчей нет.";
+      return;
+    }
+    box.className = "";
+    box.innerHTML = "";
+    box.dataset.lastDate = "";
+    appendGames(games, league, box);
+  } catch (e) {
+    box.className = "muted";
+    box.textContent = "Не удалось загрузить матчи 😕";
+  }
+}
+
+// reset=true — начинаем список заново, reset=false — дописываем следующую страницу
+async function loadGames(league, reset) {
+  const box = document.getElementById("games-list");
+  const dateBar = document.getElementById("date-bar");
+
+  // Выбор даты показываем только в своём режиме, списки — в остальных.
+  if (gamesSubTab === "date") {
+    dateBar.classList.remove("hidden");
+    loadGamesByDate(league);
+    return;
+  }
+  dateBar.classList.add("hidden");
+
+  if (reset) {
+    gamesOffset = 0;
+    box.className = "muted";
+    box.textContent = "Загрузка…";
+    box.dataset.lastDate = "";
+  }
+
+  try {
+    const url = `/api/leagues/${league.id}/games/list`
+      + `?mode=${gamesSubTab}&limit=${GAMES_PAGE}&offset=${gamesOffset}`;
+    const result = await api(url);
+    const games = (result && result.games) || [];
+
+    if (reset) {
+      if (games.length === 0) {
+        box.className = "muted";
+        box.textContent = gamesSubTab === "schedule"
+          ? "Межсезонье — ближайших матчей пока нет. Загляни в «Результаты»."
+          : "Сыгранных матчей пока нет.";
+        return;
+      }
+      box.className = "";
+      box.innerHTML = "";
+    }
+
+    // старую кнопку «Показать ещё» убираем — вместо неё придёт новая
+    const oldMore = box.querySelector(".load-more");
+    if (oldMore) oldMore.remove();
+
+    appendGames(games, league, box);
+    gamesOffset += games.length;
+
+    if (result.has_more) {
+      const more = document.createElement("button");
+      more.className = "load-more";
+      more.textContent = "Показать ещё";
+      more.addEventListener("click", () => {
+        more.disabled = true;
+        more.textContent = "Загрузка…";
+        loadGames(league, false);
+      });
+      box.appendChild(more);
+    }
+  } catch (e) {
+    if (reset) {
+      box.className = "muted";
+      box.textContent = "Не удалось загрузить матчи 😕";
+    }
+  }
+}
+
+function appendGames(games, league, box) {
+  // В ВТБ привычен порядок «хозяева — гости» (хозяева сверху),
+  // в NBA — американский «гости — хозяева». Каждой лиге — свой вид.
+  const homeFirst = league.id === "vtb";
+
+  for (const g of games) {
+    // Заголовок дня ставим, когда дата сменилась. Последнюю дату держим
+    // на самом контейнере, чтобы она пережила подгрузку следующей страницы.
+    if (g.game_date !== box.dataset.lastDate) {
+      box.dataset.lastDate = g.game_date;
+      const day = document.createElement("div");
+      day.className = "day-title";
+      day.textContent = formatDayTitle(g.game_date);
+      box.appendChild(day);
+    }
+    box.appendChild(buildGameCard(g, league, homeFirst));
+  }
+}
+
+function buildGameCard(g, league, homeFirst) {
+  const finished = g.status === "final";
+  const live = g.status === "live";
+  const statusText = finished ? "Финал" : (live ? "LIVE" : formatTime(g.datetime));
+  const showScore = finished || live;
+
+  // У матчей плей-офф и предсезонки показываем стадию, у регулярки — тур.
+  const stageLine = (g.stage && g.stage !== "regular" && g.round_label)
+    ? `<div class="game-stage">${esc(g.round_label)}</div>` : "";
+
+  const awayRow = `
+    <div class="game-team">
+      <img class="game-logo" src="${safeUrl(g.away_logo)}" alt="">
+      <span class="game-tname">${esc(g.away_short || g.away_name)}</span>
+      <span class="game-score">${showScore ? esc(g.away_score) : ""}</span>
+    </div>`;
+  const homeRow = `
+    <div class="game-team">
+      <img class="game-logo" src="${safeUrl(g.home_logo)}" alt="">
+      <span class="game-tname">${esc(g.home_short || g.home_name)}</span>
+      <span class="game-score">${showScore ? esc(g.home_score) : ""}</span>
+    </div>`;
+
+  const card = document.createElement("div");
+  card.className = "game-card" + (showScore ? " clickable" : "");
+  card.innerHTML = `
+    ${stageLine}
+    <div class="game-status ${live ? "live" : ""}">${esc(statusText)}</div>
+    ${homeFirst ? homeRow + awayRow : awayRow + homeRow}`;
+  if (showScore) card.addEventListener("click", () => showBoxScore(g, league, "games"));
+  return card;
+}
+
+// ===== Вкладка «Новости» =====
+// Показываем ровно то, что пришло в ленте: заголовок, аннотацию источника,
+// его название и ссылку на оригинал. Полные тексты к себе не тянем —
+// этого требуют условия использования лент (в частности, у ESPN).
+async function showNews(league) {
+  const content = document.getElementById("tab-content");
+  content.className = "";
+  content.innerHTML = `<div id="news-list" class="muted">Загрузка…</div>`;
+  loadNews(league, true);
+}
+
+async function loadNews(league, reset) {
+  const box = document.getElementById("news-list");
+
+  if (reset) {
+    newsOffset = 0;
+    box.className = "muted";
+    box.textContent = "Загрузка…";
+  }
+
+  try {
+    const result = await api(
+      `/api/leagues/${league.id}/news?limit=${NEWS_PAGE}&offset=${newsOffset}`
+    );
+    const items = (result && result.news) || [];
+
+    if (reset) {
+      if (items.length === 0) {
+        box.className = "muted";
+        box.textContent = "Новостей пока нет.";
+        return;
+      }
+      box.className = "";
+      box.innerHTML = "";
+    }
+
+    const oldMore = box.querySelector(".load-more");
+    if (oldMore) oldMore.remove();
+
+    for (const item of items) box.appendChild(buildNewsCard(item));
+    newsOffset += items.length;
+
+    if (result.has_more) {
+      const more = document.createElement("button");
+      more.className = "load-more";
+      more.textContent = "Показать ещё";
+      more.addEventListener("click", () => {
+        more.disabled = true;
+        more.textContent = "Загрузка…";
+        loadNews(league, false);
+      });
+      box.appendChild(more);
+    }
+  } catch (e) {
+    if (reset) {
+      box.className = "muted";
+      box.textContent = "Не удалось загрузить новости 😕";
+    }
+  }
+}
+
+function buildNewsCard(item) {
+  const card = document.createElement("a");
+  card.className = "news-card";
+  card.href = safeUrl(item.link);
+  card.target = "_blank";
+  card.rel = "noopener noreferrer";
+
+  const image = item.image_url
+    ? `<img class="news-image" src="${safeUrl(item.image_url)}" alt="" loading="lazy">` : "";
+  const summary = item.summary
+    ? `<div class="news-summary">${esc(item.summary)}</div>` : "";
+
+  card.innerHTML = `
+    ${image}
+    <div class="news-body">
+      <div class="news-title">${esc(item.title)}</div>
+      ${summary}
+      <div class="news-meta">
+        <span class="news-source">${esc(item.source)}</span>
+        <span class="news-date">${esc(formatNewsDate(item.published))}</span>
+      </div>
+    </div>`;
+  return card;
+}
+
+function formatNewsDate(iso) {
+  if (!iso) return "";
+  const day = iso.slice(0, 10);
+  const today = todayStr();
+  if (day === today) return `сегодня, ${iso.slice(11, 16)}`;
+  if (day === addDays(today, -1)) return "вчера";
+  return `${Number(iso.slice(8, 10))} ${MONTHS_RU[Number(iso.slice(5, 7)) - 1]}`;
+}
+
+// ===== Экран матча: box score =====
+// returnTab — на какую вкладку лиги вернуться по кнопке «Назад»
+// (мы попадаем сюда и из списка матчей, и из сетки плей-офф).
+async function showBoxScore(game, league, returnTab = "games") {
+  const backLabel = returnTab === "standings" ? "‹ Плей-офф" : "‹ Матчи";
+  root.innerHTML = `
+    <header class="app-header"><button class="back" id="back">${backLabel}</button></header>
+    <main class="container"><div id="box" class="muted">Загрузка…</div></main>
+  `;
+  document.getElementById("back").addEventListener("click", () => showLeague(league, returnTab));
+
+  try {
+    renderBoxScore(await api(`/api/games/${game.id}/boxscore`), league);
+  } catch (e) {
+    document.getElementById("box").textContent = "Не удалось загрузить статистику матча 😕";
+  }
+}
+
+function renderBoxScore(box, league) {
+  const el = document.getElementById("box");
+  if (!box || !box.teams || box.teams.length < 2) {
+    el.className = "muted";
+    el.textContent = "Статистика матча недоступна.";
+    return;
+  }
+  boxActiveTeam = 0;
+  el.className = "";
+
+  // хозяев/гостей находим по пометке; порядок показа зависит от лиги
+  // (ВТБ — хозяева сверху, NBA/Евролига — гости сверху)
+  const home = box.teams.find(t => t.home_away === "home") || box.teams[1];
+  const away = box.teams.find(t => t.home_away === "away") || box.teams[0];
+  const homeFirst = league && league.id === "vtb";
+  const ordered = homeFirst ? [home, away] : [away, home];
+
+  const numQ = Math.max(ordered[0].quarters.length, ordered[1].quarters.length);
+  const qHeaders = [];
+  for (let i = 0; i < numQ; i++) qHeaders.push(i < 4 ? String(i + 1) : "ОТ");
+
+  const qRow = (t) => `
+    <div class="ls-row">
+      <span class="ls-team"><img class="ls-logo" src="${safeUrl(t.logo)}" alt="">${esc(t.short_name)}</span>
+      ${t.quarters.map(q => `<span class="ls-q">${esc(q)}</span>`).join("")}
+      <span class="ls-total">${esc(t.score)}</span>
+    </div>`;
+
+  el.innerHTML = `
+    <div class="linescore">
+      <div class="ls-row ls-head">
+        <span class="ls-team"></span>
+        ${qHeaders.map(h => `<span class="ls-q">${esc(h)}</span>`).join("")}
+        <span class="ls-total">И</span>
+      </div>
+      ${qRow(ordered[0])}
+      ${qRow(ordered[1])}
+    </div>
+    <div class="box-tabs">
+      <button class="box-tab" data-i="0">${esc(ordered[0].short_name || "1")}</button>
+      <button class="box-tab" data-i="1">${esc(ordered[1].short_name || "2")}</button>
+    </div>
+    <div id="box-team"></div>
+  `;
+
+  const tabs = el.querySelectorAll(".box-tab");
+  tabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      boxActiveTeam = Number(tab.dataset.i);
+      tabs.forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      renderBoxTeam(ordered[boxActiveTeam]);
+    });
+  });
+  tabs[boxActiveTeam].classList.add("active");
+  renderBoxTeam(ordered[boxActiveTeam]);
+}
+
+function renderBoxTeam(team) {
+  const box = document.getElementById("box-team");
+  const t = team.totals || {};
+
+  const totals = `
+    <div class="team-totals">
+      <div class="tt-item"><span class="tt-val">${esc(t.fg || "—")}</span><span class="tt-lbl">FG ${t.fg_pct ? esc(t.fg_pct) + "%" : ""}</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(t.fg3 || "—")}</span><span class="tt-lbl">3PT ${t.fg3_pct ? esc(t.fg3_pct) + "%" : ""}</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(t.ft || "—")}</span><span class="tt-lbl">FT ${t.ft_pct ? esc(t.ft_pct) + "%" : ""}</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(t.reb || "—")}</span><span class="tt-lbl">Подборы</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(t.ast || "—")}</span><span class="tt-lbl">Передачи</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(t.to || "—")}</span><span class="tt-lbl">Потери</span></div>
+    </div>`;
+
+  const head = `
+    <div class="bs-row bs-head">
+      <span class="bs-name">Игрок</span>
+      <span>МИН</span><span>ОЧ</span><span>ПД</span><span>ПАС</span>
+      <span>ПХ</span><span>БЛ</span><span>ПТ</span>
+      <span class="bs-wide">FG</span><span class="bs-wide">3PT</span><span class="bs-wide">FT</span><span>+/-</span>
+    </div>`;
+
+  const rows = (team.players || []).map(p => `
+    <div class="bs-row">
+      <span class="bs-name">${p.starter ? "<span class='starter'>•</span> " : ""}${esc(p.name)}</span>
+      <span>${esc(p.min)}</span><span class="bs-pts">${esc(p.pts)}</span><span>${esc(p.reb)}</span><span>${esc(p.ast)}</span>
+      <span>${esc(p.stl)}</span><span>${esc(p.blk)}</span><span>${esc(p.to)}</span>
+      <span class="bs-wide">${esc(p.fg)}</span><span class="bs-wide">${esc(p.fg3)}</span><span class="bs-wide">${esc(p.ft)}</span><span>${esc(p.plus_minus)}</span>
+    </div>`).join("");
+
+  box.innerHTML = totals + `<div class="bs-scroll"><div class="bs-table">${head}${rows}</div></div>`;
+}
+
+// ===== Вкладка «Команды» =====
+function renderTeams(teams, league) {
+  const content = document.getElementById("tab-content");
+  if (!teams || teams.length === 0) {
+    content.className = "muted";
+    content.textContent = "Команд пока нет.";
+    return;
+  }
+  content.className = "";
+  content.innerHTML = "";
+
+  const grid = document.createElement("div");
+  grid.className = "team-grid";
+  for (const team of teams) {
+    const card = document.createElement("div");
+    card.className = "team-card";
+    card.innerHTML = `<img class="team-logo" src="${safeUrl(team.logo_url)}" alt=""><div class="team-name">${esc(team.name)}</div>`;
+    card.addEventListener("click", () => showTeam(team, league));
+    grid.appendChild(card);
+  }
+  content.appendChild(grid);
+}
+
+// ===== Экран команды: состав =====
+async function showTeam(team, league) {
+  root.innerHTML = `
+    <header class="app-header">
+      <button class="back" id="back">‹ ${esc(league.name)}</button>
+      <div class="team-head"><img class="team-head-logo" src="${safeUrl(team.logo_url)}" alt=""><h1>${esc(team.name)}</h1></div>
+    </header>
+    <main class="container"><div id="roster" class="muted">Загрузка…</div></main>
+  `;
+  document.getElementById("back").addEventListener("click", () => showLeague(league, "teams"));
+
+  try {
+    renderRoster(await api(`/api/teams/${team.id}/roster`), team, league);
+  } catch (e) {
+    document.getElementById("roster").textContent = "Не удалось загрузить состав 😕";
+  }
+}
+
+function renderRoster(players, team, league) {
+  const box = document.getElementById("roster");
+  if (!players || players.length === 0) {
+    box.className = "muted";
+    box.textContent = "Состав пока не загружен.";
+    return;
+  }
+  box.className = "";
+  box.innerHTML = "";
+
+  const list = document.createElement("div");
+  list.className = "player-list";
+  for (const p of players) {
+    const item = document.createElement("div");
+    item.className = "player-item";
+    item.innerHTML = `
+      ${avatarHtml(p, "player-photo")}
+      <div class="player-info">
+        <div class="player-name">${esc(p.name)}</div>
+        <div class="player-meta">${esc(p.position)}${p.number ? " · #" + esc(p.number) : ""}</div>
+      </div>
+      <div class="arrow">›</div>`;
+    item.addEventListener("click", () => showPlayer(p, team, league));
+    list.appendChild(item);
+  }
+  box.appendChild(list);
+}
+
+// ===== Экран игрока: статистика за сезон =====
+async function showPlayer(player, team, league) {
+  root.innerHTML = `
+    <header class="app-header"><button class="back" id="back">‹ ${esc(team.name)}</button></header>
+    <main class="container">
+      <div class="player-card">
+        ${avatarHtml(player, "player-card-photo")}
+        <div class="player-card-name">${esc(player.name)}</div>
+        <div class="player-card-sub">${esc(player.position)}${player.number ? " · #" + esc(player.number) : ""}${player.height ? " · " + esc(player.height) : ""}</div>
+      </div>
+      <div id="stats" class="muted">Загрузка статистики…</div>
+    </main>
+  `;
+  document.getElementById("back").addEventListener("click", () => showTeam(team, league));
+
+  try {
+    renderStats(await api(`/api/players/${player.id}/stats`));
+  } catch (e) {
+    document.getElementById("stats").textContent = "Не удалось загрузить статистику 😕";
+  }
+}
+
+function renderStats(stats) {
+  const box = document.getElementById("stats");
+  if (!stats) {
+    box.className = "muted";
+    box.textContent = "Статистики за сезон нет.";
+    return;
+  }
+  box.className = "";
+  box.innerHTML = "";
+
+  const main = [
+    { label: "Очки", value: stats.pts },
+    { label: "Подборы", value: stats.reb },
+    { label: "Передачи", value: stats.ast },
+  ];
+  const mainGrid = document.createElement("div");
+  mainGrid.className = "stat-main";
+  for (const s of main) {
+    const cell = document.createElement("div");
+    cell.className = "stat-box big";
+    cell.innerHTML = `<div class="stat-value">${esc(s.value ?? "—")}</div><div class="stat-label">${esc(s.label)}</div>`;
+    mainGrid.appendChild(cell);
+  }
+  box.appendChild(mainGrid);
+
+  const more = [
+    { label: "Игры", value: stats.games_played }, { label: "Минуты", value: stats.minutes },
+    { label: "Перехваты", value: stats.stl }, { label: "Блоки", value: stats.blk },
+    { label: "Потери", value: stats.tov }, { label: "FG %", value: stats.fg_pct },
+    { label: "3P %", value: stats.fg3_pct }, { label: "FT %", value: stats.ft_pct },
+  ];
+  const moreGrid = document.createElement("div");
+  moreGrid.className = "stat-more";
+  for (const s of more) {
+    const cell = document.createElement("div");
+    cell.className = "stat-box";
+    cell.innerHTML = `<div class="stat-value">${esc(s.value ?? "—")}</div><div class="stat-label">${esc(s.label)}</div>`;
+    moreGrid.appendChild(cell);
+  }
+  box.appendChild(moreGrid);
+}
+
+// старт приложения
+showHome();

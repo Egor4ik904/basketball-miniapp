@@ -1,0 +1,43 @@
+# app/config.py
+# Настройки приложения. Всё, что нельзя держать в коде (токены, секреты),
+# читается из переменных окружения.
+#
+# Локально они берутся из файла .env рядом с проектом — его образец лежит
+# в .env.example. На сервере переменные задаются в панели управления, никакого
+# .env там нет, и это правильно: секрет не должен лежать файлом на диске.
+
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# python-dotenv может быть ещё не установлен (например, при первом запуске
+# после обновления зависимостей). Тогда просто читаем системные переменные —
+# на сервере они и так приходят оттуда, и ничего не ломается.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:
+    pass
+
+
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
+PUBLIC_URL = os.getenv("PUBLIC_URL", "").strip().rstrip("/")
+
+
+def bot_enabled() -> bool:
+    """Есть ли смысл запускать бота. Без токена — нет: локально приложение
+    должно работать и без него, как сейчас."""
+    return bool(BOT_TOKEN)
+
+
+def describe() -> str:
+    """Короткая сводка для лога при старте. Значения не печатаем —
+    в логи секреты попадать не должны."""
+    parts = [
+        f"токен бота: {'задан' if BOT_TOKEN else 'нет'}",
+        f"секрет вебхука: {'задан' if WEBHOOK_SECRET else 'нет'}",
+        f"внешний адрес: {PUBLIC_URL or 'нет'}",
+    ]
+    return ", ".join(parts)

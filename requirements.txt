@@ -1,0 +1,30 @@
+fastapi
+uvicorn[standard]
+aiogram
+apscheduler
+httpx
+feedparser
+beautifulsoup4
+lxml
+balldontlie
+euroleague-api
+python-dotenv
+# Веб-сервер
+fastapi
+uvicorn[standard]
+
+# Запросы к источникам данных
+httpx
+
+# Разбор XML (Евролига отдаёт расписание в XML)
+xmltodict
+
+# Фоновые задачи по расписанию
+apscheduler
+
+# Новости: разбор RSS и вычистка HTML из аннотаций
+feedparser
+beautifulsoup4
+
+# Чтение настроек из файла .env
+python-dotenv

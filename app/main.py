@@ -1,0 +1,336 @@
+# app/main.py
+# Главный файл: собирает наш веб-сервер (FastAPI).
+
+import re
+import time
+from pathlib import Path
+from datetime import datetime
+
+from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+from app.db import (
+    init_db, migrate_db, get_connection,
+    count_teams, save_teams, get_teams,
+    get_team_ids, count_players, save_players,
+    save_games, get_games, get_games_list, count_games, get_playoff_games,
+    count_standings, save_standings, get_standings,
+    save_player_stats, get_player_stats,
+    save_boxscore, get_boxscore,
+    save_news, get_news, prune_news,
+    get_meta, set_meta, clear_player_stats, set_league_season,
+)
+from app import news
+from app import season as season_mod
+from app.adapters import nba, euroleague, vtb
+from app.brackets import build_bracket
+from app.scheduler import start_scheduler
+
+app = FastAPI(title="Баскетбольный центр")
+
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# ===== Реестр адаптеров лиг =====
+# Чтобы добавить новую лигу — пишем её адаптер и вписываем сюда одной строкой.
+ADAPTERS = {
+    "nba": nba,
+    "euroleague": euroleague,
+    "vtb": vtb,
+}
+
+
+# ===== Проверка того, что приходит из адреса =====
+# Идентификаторы из адреса попадают не только в запросы к базе (там они
+# подставляются параметрами и безопасны), но и в АДРЕСА запросов к источникам:
+# например, id матча становится частью пути. Без проверки через такой адрес
+# можно было бы заставить наш сервер ходить куда угодно по чужому сайту.
+# Поэтому пропускаем только то, что действительно похоже на идентификатор:
+# «лига:код», где код — буквы, цифры, точка, дефис, подчёркивание.
+ENTITY_ID_RE = re.compile(r"^[a-z]{2,20}:[A-Za-z0-9_.-]{1,40}$")
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def check_entity_id(entity_id: str) -> str:
+    if not ENTITY_ID_RE.match(entity_id or ""):
+        raise HTTPException(status_code=400, detail="Некорректный идентификатор")
+    return entity_id
+
+
+def check_date(value: str) -> str:
+    if not DATE_RE.match(value or ""):
+        raise HTTPException(status_code=400, detail="Дата должна быть в виде ГГГГ-ММ-ДД")
+    return value
+
+
+def adapter_for(league_id: str):
+    """Адаптер по id лиги (например 'nba')."""
+    return ADAPTERS.get(league_id)
+
+
+def adapter_for_entity(entity_id: str):
+    """Адаптер по id сущности ('nba:401...' -> адаптер 'nba')."""
+    return ADAPTERS.get(entity_id.split(":")[0])
+
+
+def warmup() -> None:
+    """Начальная загрузка данных всех лиг при старте (один раз, если пусто).
+    Для каждой лиги грузим команды, таблицу, составы и матчи сезона — если её
+    адаптер это умеет. Ошибка одного источника не мешает остальным (ТЗ 6.4)."""
+    for lid, adapter in ADAPTERS.items():
+        # команды
+        try:
+            if hasattr(adapter, "fetch_teams") and count_teams(lid) == 0:
+                n = save_teams(adapter.fetch_teams())
+                print(f"[старт] {lid}: загружено команд {n}")
+        except Exception as e:
+            print(f"[старт] {lid}: команды не загружены: {e}")
+
+        # турнирная таблица
+        try:
+            if hasattr(adapter, "fetch_standings") and count_standings(lid) == 0:
+                n = save_standings(adapter.fetch_standings())
+                print(f"[старт] {lid}: загружена таблица ({n} строк)")
+        except Exception as e:
+            print(f"[старт] {lid}: таблица не загружена: {e}")
+
+        # Составы всех команд. Каждая команда обрабатывается отдельно:
+        # раньше ошибка на одном клубе обрывала цикл, и лига оставалась
+        # вообще без игроков.
+        try:
+            if hasattr(adapter, "fetch_roster") and count_players(lid) == 0:
+                team_ids = get_team_ids(lid, season_mod.teams_season(lid))
+                print(f"[старт] {lid}: загружаю составы {len(team_ids)} команд...")
+                total, failed = 0, []
+                for tid in team_ids:
+                    try:
+                        total += save_players(adapter.fetch_roster(tid.split(":")[1]))
+                    except Exception as e:
+                        failed.append(f"{tid} ({type(e).__name__})")
+                    time.sleep(0.3)
+                print(f"[старт] {lid}: загружено игроков {total}"
+                      + (f", не удалось: {', '.join(failed)}" if failed else ""))
+        except Exception as e:
+            print(f"[старт] {lid}: составы не загружены: {e}")
+
+        # матчи всего сезона — нужны календарю, результатам и сетке плей-офф
+        try:
+            if hasattr(adapter, "fetch_season_games") and count_games(lid) == 0:
+                print(f"[старт] {lid}: загружаю матчи сезона...")
+                n = save_games(adapter.fetch_season_games())
+                print(f"[старт] {lid}: загружено матчей за сезон {n}")
+        except Exception as e:
+            print(f"[старт] {lid}: матчи сезона не загружены: {e}")
+
+        # Новости обновляем при КАЖДОМ старте, а не только когда база пуста.
+        # Это всего несколько запросов на пару секунд, зато сразу видно
+        # изменения в списке лент — не приходится ждать планировщик.
+        try:
+            n = save_news(news.fetch_league(lid))
+            print(f"[старт] {lid}: новостей добавлено {n}")
+        except Exception as e:
+            print(f"[старт] {lid}: новости не загружены: {e}")
+
+
+def sync_seasons() -> None:
+    """Определяет текущий сезон каждой лиги и, если он сменился, чистит
+    прошлогоднее. Вызывается до загрузки данных, чтобы всё поехало сразу
+    из нужного сезона.
+
+    Сбрасываем статистику игроков: она хранится без привязки к сезону,
+    и без очистки в новом сезоне остались бы прошлогодние средние.
+    Таблицу трогать не надо — она перезапишется по ключу «команда»,
+    а матчи храним с полем season, они не мешают друг другу.
+    """
+    for lid in ADAPTERS:
+        try:
+            label = season_mod.label_for(lid)
+            set_league_season(lid, label)
+
+            key = f"season:{lid}"
+            previous = get_meta(key)
+            if previous and previous != label:
+                removed = clear_player_stats(lid)
+                print(f"[сезон] {lid}: сезон сменился ({previous} -> {label}), "
+                      f"статистика игроков сброшена ({removed} записей)")
+            set_meta(key, label)
+        except Exception as e:
+            print(f"[сезон] {lid}: определить не удалось: {e}")
+
+
+def tidy_news() -> None:
+    """Приводит новости в порядок перед загрузкой свежих:
+    убирает материалы отключённых лент и разбирает накопившиеся повторы."""
+    for lid, feeds in news.FEEDS.items():
+        removed = prune_news(lid, [f["name"] for f in feeds])
+        if removed:
+            print(f"[старт] {lid}: убрано новостей отключённых источников — {removed}")
+
+        duplicates = news.dedupe_stored(lid)
+        if duplicates:
+            print(f"[старт] {lid}: убрано повторов среди сохранённых — {duplicates}")
+
+
+# создаём базу, догоняем схему, наполняем данными и запускаем планировщик
+init_db()
+migrate_db()
+sync_seasons()
+tidy_news()
+warmup()
+scheduler = start_scheduler(ADAPTERS)
+
+
+@app.get("/")
+def index():
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/api/leagues")
+def get_leagues():
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, name, season_label FROM leagues "
+        "WHERE is_active = 1 ORDER BY sort_order"
+    ).fetchall()
+    conn.close()
+    return {"data": [dict(row) for row in rows]}
+
+
+@app.get("/api/leagues/{lid}/teams")
+def get_teams_endpoint(lid: str):
+    """Команды лиги — участники текущего сезона. Клубы, выбывшие после
+    прошлого сезона, остаются в базе (без них у таблицы прошлого сезона
+    пропали бы названия), но в этот список не попадают."""
+    return {"data": get_teams(lid, season_mod.teams_season(lid))}
+
+
+@app.get("/api/teams/{tid}/roster")
+def get_roster(tid: str):
+    check_entity_id(tid)
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, name, position, number, height, weight, birth_date, photo_url "
+        "FROM players WHERE team_id = ? ORDER BY name",
+        (tid,),
+    ).fetchall()
+    conn.close()
+    return {"data": [dict(row) for row in rows]}
+
+
+@app.get("/api/leagues/{lid}/games/list")
+def get_games_list_endpoint(lid: str, mode: str = "results",
+                            limit: int = 30, offset: int = 0):
+    """Списки матчей: mode='results' — сыгранные (новые сверху),
+    mode='schedule' — предстоящие (ближайшие сверху). Страницами по limit."""
+    limit = max(1, min(limit, 100))          # защита от слишком больших запросов
+    return {"data": get_games_list(lid, mode, limit, offset)}
+
+
+@app.get("/api/leagues/{lid}/games")
+def get_games_endpoint(lid: str, date: str | None = None):
+    """Матчи за конкретный день. Списки берут данные из /games/list,
+    а этот эндпоинт остаётся для точечных запросов по дате."""
+    if date is None:
+        date = datetime.now().strftime("%Y-%m-%d")
+    check_date(date)
+
+    games = get_games(lid, date)
+
+    # Матчи сезона обычно уже лежат в базе после прогрева. Но если по этой дате
+    # ничего нет (например, база только что создана), догружаем разово.
+    adapter = adapter_for(lid)
+    if not games and adapter and hasattr(adapter, "fetch_games"):
+        try:
+            save_games(adapter.fetch_games(date.replace("-", "")))
+            games = get_games(lid, date)
+        except Exception as e:
+            print(f"[games] {lid}: матчи за {date} не загружены: {e}")
+
+    return {"data": games}
+
+
+@app.get("/api/leagues/{lid}/bracket")
+def get_bracket_endpoint(lid: str):
+    """Сетка плей-офф: список кругов, в каждом — серии со счётом и матчами.
+    Пустой список означает, что плей-офф ещё не начался."""
+    return {"data": build_bracket(get_playoff_games(lid))}
+
+
+@app.get("/api/leagues/{lid}/news")
+def get_news_endpoint(lid: str, limit: int = 20, offset: int = 0):
+    """Новости лиги страницами, свежие сверху."""
+    limit = max(1, min(limit, 50))
+    return {"data": get_news(lid, limit, offset)}
+
+
+@app.get("/api/leagues/{lid}/standings")
+def get_standings_endpoint(lid: str):
+    return {"data": get_standings(lid)}
+
+
+@app.get("/api/players/{pid}/stats")
+def get_player_stats_endpoint(pid: str):
+    check_entity_id(pid)
+    stats = get_player_stats(pid)
+
+    adapter = adapter_for_entity(pid)
+    if stats is None and adapter and hasattr(adapter, "fetch_player_stats"):
+        try:
+            fetched = adapter.fetch_player_stats(pid.split(":")[1])
+            if fetched:
+                save_player_stats(fetched)
+                stats = get_player_stats(pid)
+        except Exception as e:
+            print(f"[stats] {pid}: статистика не загружена: {e}")
+
+    return {"data": stats}
+
+
+@app.get("/api/games/{gid}/boxscore")
+def get_boxscore_endpoint(gid: str):
+    check_entity_id(gid)
+    # берём статус и команды матча из нашей базы
+    conn = get_connection()
+    grow = conn.execute(
+        "SELECT status, home_team_id, away_team_id FROM games WHERE id = ?", (gid,)
+    ).fetchone()
+    conn.close()
+    status = grow["status"] if grow else None
+
+    box = None
+    if status == "final":
+        box = get_boxscore(gid)          # из кеша (если уже сохраняли)
+
+    if box is None:
+        adapter = adapter_for_entity(gid)
+        if adapter and hasattr(adapter, "fetch_boxscore"):
+            try:
+                box = adapter.fetch_boxscore(gid.split(":")[1])
+                if status == "final":
+                    save_boxscore(gid, box)
+            except Exception as e:
+                print(f"[boxscore] {gid}: не загружен: {e}")
+
+    # Подставляем логотипы (и названия) команд из базы — те же, что в списке
+    # матчей. Сопоставляем по home/away с командами этого матча.
+    if box and box.get("teams") and grow:
+        conn = get_connection()
+        for role, tid in (("home", grow["home_team_id"]), ("away", grow["away_team_id"])):
+            trow = conn.execute(
+                "SELECT name, logo_url FROM teams WHERE id = ?", (tid,)
+            ).fetchone()
+            if trow and trow["logo_url"]:
+                for team in box["teams"]:
+                    if team.get("home_away") == role:
+                        team["logo"] = trow["logo_url"]
+                        if not team.get("name"):
+                            team["name"] = trow["name"]
+        conn.close()
+
+    return {"data": box}
