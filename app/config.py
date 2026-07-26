@@ -25,11 +25,23 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
 PUBLIC_URL = os.getenv("PUBLIC_URL", "").strip().rstrip("/")
 
+# Адрес базы PostgreSQL (Neon) для пользовательских данных: избранное,
+# настройки уведомлений. Матчи и новости остаются в SQLite-кеше.
+# Без этой строки раздел избранного просто выключается, а всё остальное
+# приложение работает как прежде — удобно для локальной разработки.
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
 
 def bot_enabled() -> bool:
     """Есть ли смысл запускать бота. Без токена — нет: локально приложение
     должно работать и без него, как сейчас."""
     return bool(BOT_TOKEN)
+
+
+def user_db_enabled() -> bool:
+    """Доступна ли база пользовательских данных. Без неё раздел избранного
+    отключается, остальное работает."""
+    return bool(DATABASE_URL)
 
 
 def describe() -> str:
@@ -39,5 +51,6 @@ def describe() -> str:
         f"токен бота: {'задан' if BOT_TOKEN else 'нет'}",
         f"секрет вебхука: {'задан' if WEBHOOK_SECRET else 'нет'}",
         f"внешний адрес: {PUBLIC_URL or 'нет'}",
+        f"база пользователей: {'задана' if DATABASE_URL else 'нет'}",
     ]
     return ", ".join(parts)

@@ -8,9 +8,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from app.db import (
     init_db, migrate_db, get_connection,
@@ -27,6 +28,8 @@ from app import news
 from app import season as season_mod
 from app import config
 from app import bot as tg_bot
+from app import userdata
+from app.telegram_auth import verify_init_data
 from app.adapters import nba, euroleague, vtb
 from app.brackets import build_bracket
 from app.scheduler import start_scheduler
@@ -199,8 +202,10 @@ def _background_startup() -> None:
 async def lifespan(app: FastAPI):
     # выполняется один раз при запуске сервера
     print(f"[старт] настройки: {config.describe()}")
+    print(f"[старт] настройки: {config.describe()}")
     init_db()
     migrate_db()
+    userdata.init_pool()          # база пользовательских данных (Neon)
 
     # прогрев — в фоне, порт открывается сразу
     threading.Thread(target=_background_startup, daemon=True).start()
@@ -225,6 +230,7 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
     if config.bot_enabled():
         await tg_bot.remove_webhook()
+    userdata.close_pool()
 
 
 app = FastAPI(title="Баскетбольный центр", lifespan=lifespan)
@@ -236,17 +242,75 @@ def index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+# ===== Кто это? Проверка пользователя Telegram =====
+# initData приходит в заголовке X-Init-Data. Проверяем подпись и достаём id.
+# Всё, что меняет избранное, идёт через эту зависимость — иначе нельзя
+# доверять, от чьего имени запрос.
+async def require_user(x_init_data: str | None = Header(default=None)) -> dict:
+    if not userdata.available():
+        raise HTTPException(status_code=503, detail="Избранное временно недоступно")
+    user = verify_init_data(x_init_data or "")
+    if not user:
+        raise HTTPException(status_code=401, detail="Не удалось подтвердить пользователя")
+    userdata.ensure_user(user["id"], user.get("first_name"), user.get("username"))
+    return user
+
+
+class FavoriteIn(BaseModel):
+    kind: str                      # team | league | player
+    entity_id: str
+    league_id: str | None = None
+
+
+class TeamPrefsIn(BaseModel):
+    entity_id: str
+    prefs: dict
+
+
+@app.get("/api/favorites")
+def get_favorites(user: dict = Depends(require_user)):
+    return {"data": userdata.list_favorites(user["id"])}
+
+
+@app.get("/api/favorites/ids")
+def get_favorite_ids(user: dict = Depends(require_user)):
+    return {"data": userdata.favorite_ids(user["id"])}
+
+
+@app.post("/api/favorites")
+def add_favorite_endpoint(body: FavoriteIn, user: dict = Depends(require_user)):
+    if body.kind not in ("team", "league", "player"):
+        raise HTTPException(status_code=400, detail="Неизвестный тип избранного")
+    check_entity_id(body.entity_id)
+    ok = userdata.add_favorite(user["id"], body.kind, body.entity_id, body.league_id)
+    return {"ok": ok}
+
+
+@app.delete("/api/favorites")
+def remove_favorite_endpoint(body: FavoriteIn, user: dict = Depends(require_user)):
+    check_entity_id(body.entity_id)
+    ok = userdata.remove_favorite(user["id"], body.kind, body.entity_id)
+    return {"ok": ok}
+
+
+@app.post("/api/favorites/team-prefs")
+def set_team_prefs_endpoint(body: TeamPrefsIn, user: dict = Depends(require_user)):
+    check_entity_id(body.entity_id)
+    ok = userdata.set_team_prefs(user["id"], body.entity_id, body.prefs)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Команда не в избранном")
+    return {"ok": ok}
+
+
 @app.post(tg_bot.WEBHOOK_PATH)
 async def telegram_webhook(
     request: Request,
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ):
     """Сюда Telegram присылает сообщения бота. Секрет проверяем дважды:
-    он зашит в самом адресе (в пути) и приходит в заголовке — сверяем оба,
-    чтобы обращение точно было от Telegram, а не от постороннего."""
+    он зашит в самом адресе (в пути) и приходит в заголовке — сверяем оба."""
     if config.WEBHOOK_SECRET and x_telegram_bot_api_secret_token != config.WEBHOOK_SECRET:
         raise HTTPException(status_code=403, detail="Неверный секрет")
-
     payload = await request.json()
     await tg_bot.handle_update(payload)
     return {"ok": True}
