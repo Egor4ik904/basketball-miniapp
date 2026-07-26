@@ -243,3 +243,66 @@ body {
 .bs-head { color: var(--muted); font-size: 11px; }
 .bs-pts { font-weight: 700; }
 .starter { color: var(--accent); }
+
+/* ===== Избранное ===== */
+
+/* звезда добавления — на карточках лиг и как отдельная кнопка */
+.star {
+  background: none; border: none; cursor: pointer;
+  font-size: 22px; line-height: 1; padding: 4px 8px;
+  color: var(--muted); flex-shrink: 0;
+}
+.star.on { color: var(--accent); }
+.star:active { transform: scale(1.2); }
+
+/* звезда в углу карточки команды (сетка команд) */
+.team-card { position: relative; }
+.star-corner {
+  position: absolute; top: 4px; right: 4px;
+  padding: 2px 6px; font-size: 20px;
+}
+
+/* пункт «Избранное» на главной — акцентная рамка */
+.fav-entry { border-left-color: #f5b301; }
+
+/* кнопка «в избранное» на карточке игрока */
+.fav-button {
+  margin-top: 12px; background: var(--card); border: 1px solid var(--accent);
+  color: var(--accent); padding: 8px 18px; border-radius: 20px;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.fav-button.on { background: var(--accent); color: #fff; }
+
+/* строки списка избранного */
+.fav-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--card); border-radius: var(--radius);
+  padding: 12px 14px; margin-bottom: 10px; cursor: pointer;
+}
+.fav-row:active { opacity: 0.8; }
+.fav-logo { width: 40px; height: 40px; object-fit: contain; flex-shrink: 0; background: #222735; border-radius: 8px; }
+.fav-logo.round { border-radius: 50%; object-fit: cover; object-position: center top; }
+.fav-main { flex: 1; min-width: 0; }
+.fav-name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fav-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+.fav-remove {
+  background: none; border: none; color: var(--muted);
+  font-size: 16px; cursor: pointer; padding: 6px 8px; flex-shrink: 0;
+}
+.fav-remove:active { color: #ff4d4d; }
+
+/* карточка команды в избранном: строка + настройка уведомлений */
+.fav-card { background: var(--card); border-radius: var(--radius); margin-bottom: 10px; padding: 2px 0; }
+.fav-card .fav-row { background: none; margin-bottom: 0; }
+
+.notify-grid {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 4px 14px 14px;
+}
+.notify-chip {
+  background: var(--bg); border: 1px solid #2c3140; color: var(--muted);
+  padding: 6px 12px; border-radius: 14px; font-size: 12px; cursor: pointer;
+}
+.notify-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.notify-chip:active { transform: scale(0.96); }

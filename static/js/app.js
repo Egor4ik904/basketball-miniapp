@@ -37,6 +37,88 @@ const tg = window.Telegram && window.Telegram.WebApp;
 // кнопка Telegram снимают верхний элемент — поведение у них общее.
 const backStack = [];
 
+// ===== Избранное =====
+// Работает только внутри Telegram: серверу нужна подпись initData, чтобы
+// знать, кто добавляет. В обычном браузере подписи нет — звёздочки прячем.
+const initData = tg ? tg.initData : "";
+const favEnabled = !!(tg && initData);
+
+// Множество избранного, чтобы звёздочки знали своё состояние без запроса на
+// каждый экран. Элемент — строка "kind:entity_id", например "team:nba:13".
+let favSet = new Set();
+
+// Запросы к серверу с подписью в заголовке. Без initData сервер не поверит,
+// кто мы, поэтому эти вызовы имеют смысл только в Telegram.
+async function favApi(method, path, body) {
+  const headers = { "X-Init-Data": initData };
+  if (body) headers["Content-Type"] = "application/json";
+  const res = await fetch(path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error("fav " + res.status);
+  return res.json();
+}
+
+// Один раз при запуске тянем список избранного и запоминаем.
+async function loadFavorites() {
+  if (!favEnabled) return;
+  try {
+    const data = await favApi("GET", "/api/favorites/ids");
+    favSet = new Set((data && data.data) || []);
+  } catch (e) {
+    favSet = new Set();
+  }
+}
+
+function favKey(kind, entityId) {
+  return `${kind}:${entityId}`;
+}
+
+function isFav(kind, entityId) {
+  return favSet.has(favKey(kind, entityId));
+}
+
+// Добавляет/убирает из избранного и держит локальное множество в согласии
+// с сервером. Возвращает новое состояние (true — теперь в избранном).
+async function toggleFav(kind, entityId, leagueId) {
+  const key = favKey(kind, entityId);
+  const wasFav = favSet.has(key);
+  try {
+    if (wasFav) {
+      await favApi("DELETE", "/api/favorites", { kind, entity_id: entityId });
+      favSet.delete(key);
+    } else {
+      await favApi("POST", "/api/favorites", { kind, entity_id: entityId, league_id: leagueId });
+      favSet.add(key);
+    }
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+    return !wasFav;
+  } catch (e) {
+    return wasFav;                 // не вышло — состояние не меняем
+  }
+}
+
+// Кнопка-звёздочка. Возвращает готовый элемент, сам переключает состояние.
+// stopClick — не давать нажатию «протечь» на родительскую карточку (иначе
+// тап по звезде ещё и откроет команду).
+function makeStar(kind, entityId, leagueId, stopClick = true) {
+  const btn = document.createElement("button");
+  btn.className = "star" + (isFav(kind, entityId) ? " on" : "");
+  btn.textContent = isFav(kind, entityId) ? "★" : "☆";
+  btn.setAttribute("aria-label", "В избранное");
+  btn.addEventListener("click", async (e) => {
+    if (stopClick) { e.stopPropagation(); e.preventDefault(); }
+    btn.disabled = true;
+    const nowFav = await toggleFav(kind, entityId, leagueId);
+    btn.classList.toggle("on", nowFav);
+    btn.textContent = nowFav ? "★" : "☆";
+    btn.disabled = false;
+  });
+  return btn;
+}
+
 function goBack() {
   const step = backStack.pop();
   if (step) step();
@@ -208,10 +290,32 @@ async function showHome() {
         <div class="league-info">
           <div class="league-name">${esc(league.name)}</div>
           <div class="league-season">Сезон ${esc(league.season_label)}</div>
+        </div>`;
+      card.addEventListener("click", () => { pushHistory(showHome); showLeague(league); });
+
+      // звезда добавления лиги в избранное (только в Telegram)
+      if (favEnabled) {
+        card.appendChild(makeStar("league", league.id, league.id));
+      }
+      const arrow = document.createElement("div");
+      arrow.className = "arrow";
+      arrow.textContent = "›";
+      card.appendChild(arrow);
+      box.appendChild(card);
+    }
+
+    // кнопка «Избранное» под списком лиг
+    if (favEnabled) {
+      const favBtn = document.createElement("div");
+      favBtn.className = "league-card fav-entry";
+      favBtn.innerHTML = `
+        <div class="league-info">
+          <div class="league-name">⭐ Избранное</div>
+          <div class="league-season">Твои лиги, команды и игроки</div>
         </div>
         <div class="arrow">›</div>`;
-      card.addEventListener("click", () => { pushHistory(showHome); showLeague(league); });
-      box.appendChild(card);
+      favBtn.addEventListener("click", () => { pushHistory(showHome); showFavorites(); });
+      box.appendChild(favBtn);
     }
   } catch (e) {
     document.getElementById("leagues").textContent = "Не удалось загрузить лиги 😕";
@@ -863,6 +967,12 @@ function renderTeams(teams, league) {
     card.className = "team-card";
     card.innerHTML = `<img class="team-logo" src="${safeUrl(team.logo_url)}" alt=""><div class="team-name">${esc(team.name)}</div>`;
     card.addEventListener("click", () => showTeam(team, league));
+    // звезда команды в правом верхнем углу карточки
+    if (favEnabled) {
+      const star = makeStar("team", team.id, league.id);
+      star.classList.add("star-corner");
+      card.appendChild(star);
+    }
     grid.appendChild(card);
   }
   content.appendChild(grid);
@@ -925,11 +1035,30 @@ async function showPlayer(player, team, league) {
         ${avatarHtml(player, "player-card-photo")}
         <div class="player-card-name">${esc(player.name)}</div>
         <div class="player-card-sub">${esc(player.position)}${player.number ? " · #" + esc(player.number) : ""}${player.height ? " · " + esc(player.height) : ""}</div>
+        <div id="player-star"></div>
       </div>
       <div id="stats" class="muted">Загрузка статистики…</div>
     </main>
   `;
   document.getElementById("back").addEventListener("click", goBack);
+
+  // кнопка «в избранное» под именем игрока (текстом, крупнее звезды)
+  if (favEnabled) {
+    const holder = document.getElementById("player-star");
+    const btn = document.createElement("button");
+    const setLook = (on) => {
+      btn.className = "fav-button" + (on ? " on" : "");
+      btn.textContent = on ? "★ В избранном" : "☆ В избранное";
+    };
+    setLook(isFav("player", player.id));
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      const nowFav = await toggleFav("player", player.id, league.id);
+      setLook(nowFav);
+      btn.disabled = false;
+    });
+    holder.appendChild(btn);
+  }
 
   try {
     renderStats(await api(`/api/players/${player.id}/stats`));
@@ -980,6 +1109,239 @@ function renderStats(stats) {
   box.appendChild(moreGrid);
 }
 
+// ===== Экран избранного =====
+// Три раздела: Лиги / Команды / Игроки. У команд — настройка моментов
+// уведомлений. Данные о лигах и командах берём из тех же эндпоинтов, что и
+// весь остальной интерфейс, а список подписок — из /api/favorites.
+
+let favActiveTab = "team";           // какой раздел открыт: team | league | player
+
+const FAV_TABS = [
+  { key: "team", label: "Команды" },
+  { key: "league", label: "Лиги" },
+  { key: "player", label: "Игроки" },
+];
+
+// Моменты уведомлений команды — подписи и порядок.
+const NOTIFY_MOMENTS = [
+  { key: "hour", label: "За час" },
+  { key: "min30", label: "За 30 мин" },
+  { key: "min10", label: "За 10 мин" },
+  { key: "start", label: "Старт матча" },
+  { key: "final", label: "Финальный счёт" },
+];
+
+async function showFavorites() {
+  root.innerHTML = `
+    <header class="app-header">
+      <button class="back" id="back">‹ Назад</button>
+      <h1>⭐ Избранное</h1>
+    </header>
+    <nav class="tabs" id="fav-tabs"></nav>
+    <main class="container"><div id="fav-content" class="muted">Загрузка…</div></main>
+  `;
+  document.getElementById("back").addEventListener("click", goBack);
+
+  const tabsBox = document.getElementById("fav-tabs");
+  FAV_TABS.forEach(t => {
+    const btn = document.createElement("button");
+    btn.className = "tab" + (t.key === favActiveTab ? " active" : "");
+    btn.textContent = t.label;
+    btn.addEventListener("click", () => {
+      favActiveTab = t.key;
+      tabsBox.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      renderFavList();
+    });
+    tabsBox.appendChild(btn);
+  });
+
+  await renderFavList();
+}
+
+// Кеш справочников, чтобы по избранному показать имена и логотипы. Лиги и
+// команды тянем один раз за сессию.
+let _leaguesCache = null;
+const _teamsCache = {};           // league_id -> [teams]
+
+async function getLeaguesMap() {
+  if (!_leaguesCache) {
+    const data = await api("/api/leagues");
+    _leaguesCache = {};
+    for (const l of data) _leaguesCache[l.id] = l;
+  }
+  return _leaguesCache;
+}
+
+async function getTeamsMap(leagueId) {
+  if (!_teamsCache[leagueId]) {
+    const data = await api(`/api/leagues/${leagueId}/teams`);
+    const map = {};
+    for (const t of data) map[t.id] = t;
+    _teamsCache[leagueId] = map;
+  }
+  return _teamsCache[leagueId];
+}
+
+async function renderFavList() {
+  const box = document.getElementById("fav-content");
+  box.className = "muted";
+  box.textContent = "Загрузка…";
+
+  let favorites;
+  try {
+    const data = await favApi("GET", "/api/favorites");
+    favorites = (data && data.data) || [];
+  } catch (e) {
+    box.className = "muted";
+    box.textContent = "Не удалось загрузить избранное 😕";
+    return;
+  }
+
+  const items = favorites.filter(f => f.kind === favActiveTab);
+  if (items.length === 0) {
+    box.className = "muted";
+    box.textContent = emptyText(favActiveTab);
+    return;
+  }
+  box.className = "";
+  box.innerHTML = "";
+
+  if (favActiveTab === "league") await renderFavLeagues(items, box);
+  else if (favActiveTab === "team") await renderFavTeams(items, box);
+  else await renderFavPlayers(items, box);
+}
+
+function emptyText(kind) {
+  if (kind === "league") return "Нет избранных лиг. Добавь их звёздочкой на главной.";
+  if (kind === "team") return "Нет избранных команд. Добавь их звёздочкой в списке команд лиги.";
+  return "Нет избранных игроков. Добавь их на карточке игрока.";
+}
+
+// --- Раздел «Лиги» ---
+async function renderFavLeagues(items, box) {
+  const leagues = await getLeaguesMap();
+  for (const fav of items) {
+    const league = leagues[fav.entity_id] || { id: fav.entity_id, name: fav.entity_id };
+    const row = document.createElement("div");
+    row.className = "fav-row";
+    row.innerHTML = `<div class="fav-main"><div class="fav-name">${esc(league.name)}</div>
+      <div class="fav-sub">Уведомления за 15 минут до матчей лиги</div></div>`;
+    row.addEventListener("click", () => { pushHistory(showFavorites); showLeague(league); });
+    row.appendChild(makeRemoveButton("league", fav.entity_id));
+    box.appendChild(row);
+  }
+}
+
+// --- Раздел «Команды» с настройкой уведомлений ---
+async function renderFavTeams(items, box) {
+  const leagues = await getLeaguesMap();
+  for (const fav of items) {
+    const teams = await getTeamsMap(fav.league_id);
+    const team = teams[fav.entity_id] || { id: fav.entity_id, name: fav.entity_id };
+    const league = leagues[fav.league_id];
+
+    const row = document.createElement("div");
+    row.className = "fav-card";
+
+    const head = document.createElement("div");
+    head.className = "fav-row";
+    head.innerHTML = `
+      <img class="fav-logo" src="${safeUrl(team.logo_url)}" alt="">
+      <div class="fav-main">
+        <div class="fav-name">${esc(team.name)}</div>
+        <div class="fav-sub">${esc(league ? league.name : "")}</div>
+      </div>`;
+    head.appendChild(makeRemoveButton("team", fav.entity_id));
+    row.appendChild(head);
+
+    // настройка моментов уведомлений
+    const prefs = fav.prefs || {};
+    const grid = document.createElement("div");
+    grid.className = "notify-grid";
+    NOTIFY_MOMENTS.forEach(m => {
+      const chip = document.createElement("button");
+      chip.className = "notify-chip" + (prefs[m.key] ? " on" : "");
+      chip.textContent = m.label;
+      chip.addEventListener("click", async () => {
+        const next = !chip.classList.contains("on");
+        chip.classList.toggle("on", next);
+        prefs[m.key] = next;
+        try {
+          await favApi("POST", "/api/favorites/team-prefs",
+            { entity_id: fav.entity_id, prefs });
+          if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+        } catch (e) {
+          chip.classList.toggle("on", !next);   // откат при ошибке
+          prefs[m.key] = !next;
+        }
+      });
+      grid.appendChild(chip);
+    });
+    row.appendChild(grid);
+    box.appendChild(row);
+  }
+}
+
+// --- Раздел «Игроки» ---
+async function renderFavPlayers(items, box) {
+  const leagues = await getLeaguesMap();
+  for (const fav of items) {
+    // По игроку нет отдельного справочника, поэтому имя тянем с его карточки
+    // статистики (там есть имя, фото, команда). Это один лёгкий запрос.
+    let info = { name: fav.entity_id, photo_url: null, team_id: null };
+    try {
+      const data = await api(`/api/players/${fav.entity_id}/stats`);
+      if (data && data.data) {
+        info.name = data.data.name || fav.entity_id;
+        info.photo_url = data.data.photo_url || null;
+        info.team_id = data.data.team_id || null;
+      }
+    } catch (e) { /* оставим заглушку */ }
+
+    const league = leagues[fav.league_id];
+    const row = document.createElement("div");
+    row.className = "fav-row";
+    const avatar = info.photo_url
+      ? `<img class="fav-logo round" src="${safeUrl(info.photo_url)}" alt="">`
+      : `<div class="fav-logo round avatar-fallback">${esc(initials(info.name))}</div>`;
+    row.innerHTML = `${avatar}
+      <div class="fav-main">
+        <div class="fav-name">${esc(info.name)}</div>
+        <div class="fav-sub">${esc(league ? league.name : "")} · статистика после матчей</div>
+      </div>`;
+
+    // тап по строке открывает карточку игрока (как из состава)
+    row.addEventListener("click", async () => {
+      if (!info.team_id) return;
+      const teams = await getTeamsMap(fav.league_id);
+      const team = teams[info.team_id];
+      if (team && league) {
+        pushHistory(showFavorites);
+        showPlayer({ id: fav.entity_id, name: info.name, photo_url: info.photo_url },
+                   team, league);
+      }
+    });
+    row.appendChild(makeRemoveButton("player", fav.entity_id));
+    box.appendChild(row);
+  }
+}
+
+// Кнопка удаления из избранного (крестик справа в строке).
+function makeRemoveButton(kind, entityId) {
+  const btn = document.createElement("button");
+  btn.className = "fav-remove";
+  btn.textContent = "✕";
+  btn.setAttribute("aria-label", "Убрать из избранного");
+  btn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    btn.disabled = true;
+    await toggleFav(kind, entityId);
+    renderFavList();               // перерисуём список без удалённого
+  });
+  return btn;
+}
+
 // старт приложения
 initTelegram();
-showHome();
+loadFavorites().finally(showHome);
