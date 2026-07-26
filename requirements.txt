@@ -1,17 +1,9 @@
-fastapi
-uvicorn[standard]
-aiogram
-apscheduler
-httpx
-feedparser
-beautifulsoup4
-lxml
-balldontlie
-euroleague-api
-python-dotenv
 # Веб-сервер
 fastapi
 uvicorn[standard]
+
+# Телеграм-бот
+aiogram
 
 # Запросы к источникам данных
 httpx

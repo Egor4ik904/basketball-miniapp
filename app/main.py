@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
@@ -26,6 +26,7 @@ from app.db import (
 from app import news
 from app import season as season_mod
 from app import config
+from app import bot as tg_bot
 from app.adapters import nba, euroleague, vtb
 from app.brackets import build_bracket
 from app.scheduler import start_scheduler
@@ -207,12 +208,23 @@ async def lifespan(app: FastAPI):
     # планировщик обновлений
     app.state.scheduler = start_scheduler(ADAPTERS)
 
+    # телеграм-бот: регистрируем вебхук, если задан токен
+    if config.bot_enabled():
+        try:
+            await tg_bot.setup_webhook()
+        except Exception as e:
+            print(f"[бот] вебхук зарегистрировать не удалось: {e}")
+    else:
+        print("[бот] токен не задан — бот выключен, работает только сайт")
+
     yield
 
     # выполняется при остановке сервера
     scheduler = getattr(app.state, "scheduler", None)
     if scheduler is not None:
         scheduler.shutdown(wait=False)
+    if config.bot_enabled():
+        await tg_bot.remove_webhook()
 
 
 app = FastAPI(title="Баскетбольный центр", lifespan=lifespan)
@@ -222,6 +234,22 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 @app.get("/")
 def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.post(tg_bot.WEBHOOK_PATH)
+async def telegram_webhook(
+    request: Request,
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
+):
+    """Сюда Telegram присылает сообщения бота. Секрет проверяем дважды:
+    он зашит в самом адресе (в пути) и приходит в заголовке — сверяем оба,
+    чтобы обращение точно было от Telegram, а не от постороннего."""
+    if config.WEBHOOK_SECRET and x_telegram_bot_api_secret_token != config.WEBHOOK_SECRET:
+        raise HTTPException(status_code=403, detail="Неверный секрет")
+
+    payload = await request.json()
+    await tg_bot.handle_update(payload)
+    return {"ok": True}
 
 
 @app.get("/api/health")
