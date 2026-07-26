@@ -3,6 +3,8 @@
 
 import re
 import time
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime
 
@@ -23,14 +25,12 @@ from app.db import (
 )
 from app import news
 from app import season as season_mod
+from app import config
 from app.adapters import nba, euroleague, vtb
 from app.brackets import build_bracket
 from app.scheduler import start_scheduler
 
-app = FastAPI(title="Баскетбольный центр")
-
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # ===== Реестр адаптеров лиг =====
 # Чтобы добавить новую лигу — пишем её адаптер и вписываем сюда одной строкой.
@@ -172,13 +172,51 @@ def tidy_news() -> None:
             print(f"[старт] {lid}: убрано повторов среди сохранённых — {duplicates}")
 
 
-# создаём базу, догоняем схему, наполняем данными и запускаем планировщик
-init_db()
-migrate_db()
-sync_seasons()
-tidy_news()
-warmup()
-scheduler = start_scheduler(ADAPTERS)
+# Готовность приложения. Пока идёт первичный прогрев (составы, матчи сезона),
+# страницы уже открываются, просто часть данных подъезжает следом. Флаг нужен,
+# чтобы это состояние было видно на /api/health.
+_warmup_done = threading.Event()
+
+
+def _background_startup() -> None:
+    """Долгая подготовка данных — в отдельном потоке, чтобы не задерживать
+    открытие порта. На сервере (Render) проверка живости стучится по HTTP
+    сразу после старта; если бы прогрев шёл до открытия порта, проверка бы
+    не дождалась и сервис считался бы упавшим."""
+    try:
+        sync_seasons()
+        tidy_news()
+        warmup()
+    except Exception as e:
+        print(f"[старт] прогрев прерван ошибкой: {e}")
+    finally:
+        _warmup_done.set()
+        print("[старт] первичная подготовка данных завершена")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # выполняется один раз при запуске сервера
+    print(f"[старт] настройки: {config.describe()}")
+    init_db()
+    migrate_db()
+
+    # прогрев — в фоне, порт открывается сразу
+    threading.Thread(target=_background_startup, daemon=True).start()
+
+    # планировщик обновлений
+    app.state.scheduler = start_scheduler(ADAPTERS)
+
+    yield
+
+    # выполняется при остановке сервера
+    scheduler = getattr(app.state, "scheduler", None)
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title="Баскетбольный центр", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/")
@@ -188,7 +226,9 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    # ok — сервер жив (этого достаточно для проверки живости на сервере);
+    # ready — первичный прогрев завершён и данные на месте.
+    return {"status": "ok", "ready": _warmup_done.is_set()}
 
 
 @app.get("/api/leagues")

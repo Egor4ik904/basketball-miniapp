@@ -1,0 +1,36 @@
+# render.yaml — как Render разворачивает приложение.
+# Файл читается автоматически при подключении репозитория (Blueprint).
+# Его можно и не использовать, задав те же поля руками в панели, но так
+# настройки лежат в репозитории и не теряются.
+
+services:
+  - type: web
+    name: basketball-miniapp
+    runtime: python
+    plan: free
+
+    # установка зависимостей
+    buildCommand: "pip install -r requirements.txt"
+
+    # запуск. Render сам передаёт порт в переменной $PORT — слушаем его.
+    # Один рабочий процесс: планировщик и кеш должны быть в единственном
+    # экземпляре, иначе задачи и прогрев задвоятся.
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1"
+
+    # адрес для проверки живости. Наш /api/health отвечает сразу, ещё до
+    # конца прогрева, — поэтому Render не сочтёт сервис упавшим, пока
+    # подъезжают составы и матчи.
+    healthCheckPath: /api/health
+
+    # Переменные окружения. Значения задаются в панели Render (Environment),
+    # в репозиторий они не попадают. sync: false означает «не хранить
+    # значение здесь, я введу его в панели».
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
+      - key: PUBLIC_URL
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.12.7"
