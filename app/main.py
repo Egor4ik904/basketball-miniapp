@@ -260,6 +260,8 @@ class FavoriteIn(BaseModel):
     kind: str                      # team | league | player
     entity_id: str
     league_id: str | None = None
+    label: str | None = None       # имя игрока/команды — чтобы показать в списке
+    photo: str | None = None       # фото игрока — там же
 
 
 class TeamPrefsIn(BaseModel):
@@ -282,7 +284,8 @@ def add_favorite_endpoint(body: FavoriteIn, user: dict = Depends(require_user)):
     if body.kind not in ("team", "league", "player"):
         raise HTTPException(status_code=400, detail="Неизвестный тип избранного")
     check_entity_id(body.entity_id)
-    ok = userdata.add_favorite(user["id"], body.kind, body.entity_id, body.league_id)
+    ok = userdata.add_favorite(user["id"], body.kind, body.entity_id, body.league_id,
+                               body.label, body.photo)
     return {"ok": ok}
 
 

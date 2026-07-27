@@ -82,7 +82,7 @@ function isFav(kind, entityId) {
 
 // Добавляет/убирает из избранного и держит локальное множество в согласии
 // с сервером. Возвращает новое состояние (true — теперь в избранном).
-async function toggleFav(kind, entityId, leagueId) {
+async function toggleFav(kind, entityId, leagueId, extra) {
   const key = favKey(kind, entityId);
   const wasFav = favSet.has(key);
   try {
@@ -90,7 +90,10 @@ async function toggleFav(kind, entityId, leagueId) {
       await favApi("DELETE", "/api/favorites", { kind, entity_id: entityId });
       favSet.delete(key);
     } else {
-      await favApi("POST", "/api/favorites", { kind, entity_id: entityId, league_id: leagueId });
+      const body = { kind, entity_id: entityId, league_id: leagueId };
+      if (extra && extra.label) body.label = extra.label;
+      if (extra && extra.photo) body.photo = extra.photo;
+      await favApi("POST", "/api/favorites", body);
       favSet.add(key);
     }
     if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
@@ -293,14 +296,18 @@ async function showHome() {
         </div>`;
       card.addEventListener("click", () => { pushHistory(showHome); showLeague(league); });
 
-      // звезда добавления лиги в избранное (только в Telegram)
-      if (favEnabled) {
-        card.appendChild(makeStar("league", league.id, league.id));
-      }
       const arrow = document.createElement("div");
       arrow.className = "arrow";
       arrow.textContent = "›";
       card.appendChild(arrow);
+
+      // звезда лиги — абсолютно спозиционирована (одинаковое место у всех),
+      // клик по ней не должен открывать лигу
+      if (favEnabled) {
+        const star = makeStar("league", league.id, league.id);
+        star.classList.add("star-league");
+        card.appendChild(star);
+      }
       box.appendChild(card);
     }
 
@@ -1053,7 +1060,8 @@ async function showPlayer(player, team, league) {
     setLook(isFav("player", player.id));
     btn.addEventListener("click", async () => {
       btn.disabled = true;
-      const nowFav = await toggleFav("player", player.id, league.id);
+      const nowFav = await toggleFav("player", player.id, league.id,
+        { label: player.name, photo: player.photo_url });
       setLook(nowFav);
       btn.disabled = false;
     });
@@ -1287,40 +1295,33 @@ async function renderFavTeams(items, box) {
 async function renderFavPlayers(items, box) {
   const leagues = await getLeaguesMap();
   for (const fav of items) {
-    // По игроку нет отдельного справочника, поэтому имя тянем с его карточки
-    // статистики (там есть имя, фото, команда). Это один лёгкий запрос.
-    let info = { name: fav.entity_id, photo_url: null, team_id: null };
-    try {
-      const data = await api(`/api/players/${fav.entity_id}/stats`);
-      if (data && data.data) {
-        info.name = data.data.name || fav.entity_id;
-        info.photo_url = data.data.photo_url || null;
-        info.team_id = data.data.team_id || null;
-      }
-    } catch (e) { /* оставим заглушку */ }
-
+    // Имя и фото сохранены в момент добавления (в карточке игрока они есть),
+    // поэтому лишних запросов не делаем. Если подписи почему-то нет (старая
+    // запись до этого обновления) — показываем «Игрок» вместо кода.
+    const name = fav.label || "Игрок";
+    const photo = fav.photo || null;
     const league = leagues[fav.league_id];
+
     const row = document.createElement("div");
     row.className = "fav-row";
-    const avatar = info.photo_url
-      ? `<img class="fav-logo round" src="${safeUrl(info.photo_url)}" alt="">`
-      : `<div class="fav-logo round avatar-fallback">${esc(initials(info.name))}</div>`;
+    const avatar = photo
+      ? `<img class="fav-logo round" src="${safeUrl(photo)}" alt="">`
+      : `<div class="fav-logo round avatar-fallback">${esc(initials(name))}</div>`;
     row.innerHTML = `${avatar}
       <div class="fav-main">
-        <div class="fav-name">${esc(info.name)}</div>
+        <div class="fav-name">${esc(name)}</div>
         <div class="fav-sub">${esc(league ? league.name : "")} · статистика после матчей</div>
       </div>`;
 
-    // тап по строке открывает карточку игрока (как из состава)
-    row.addEventListener("click", async () => {
-      if (!info.team_id) return;
-      const teams = await getTeamsMap(fav.league_id);
-      const team = teams[info.team_id];
-      if (team && league) {
-        pushHistory(showFavorites);
-        showPlayer({ id: fav.entity_id, name: info.name, photo_url: info.photo_url },
-                   team, league);
-      }
+    // Открываем карточку игрока. Команда игрока нам тут неизвестна (мы её не
+    // храним), но showPlayer нужна команда для кнопки «назад» и запроса
+    // статистики. Передаём минимально необходимое: id игрока и лигу.
+    // Заголовок «назад» просто вернёт в избранное.
+    row.addEventListener("click", () => {
+      if (!league) return;
+      const stubTeam = { id: null, name: "Избранное" };
+      pushHistory(showFavorites);
+      showPlayer({ id: fav.entity_id, name, photo_url: photo }, stubTeam, league);
     });
     row.appendChild(makeRemoveButton("player", fav.entity_id));
     box.appendChild(row);

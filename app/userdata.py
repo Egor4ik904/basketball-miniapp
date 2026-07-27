@@ -86,12 +86,17 @@ def _create_schema() -> None:
                 kind        TEXT NOT NULL,
                 entity_id   TEXT NOT NULL,
                 league_id   TEXT,
+                label       TEXT,
+                photo       TEXT,
                 created_at  TIMESTAMPTZ DEFAULT now(),
                 UNIQUE (tg_id, kind, entity_id)
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_fav_user ON favorites (tg_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_fav_entity ON favorites (kind, entity_id)")
+        # для баз, заведённых раньше: добавляем колонки, если их ещё нет
+        conn.execute("ALTER TABLE favorites ADD COLUMN IF NOT EXISTS label TEXT")
+        conn.execute("ALTER TABLE favorites ADD COLUMN IF NOT EXISTS photo TEXT")
 
         # Настройки уведомлений для КОМАНД. У команды пользователь выбирает
         # набор моментов: за час, за 30, за 10 минут, старт, финал. Храним
@@ -129,15 +134,16 @@ DEFAULT_TEAM_PREFS = {
 }
 
 
-def add_favorite(tg_id: int, kind: str, entity_id: str, league_id: str = None) -> bool:
+def add_favorite(tg_id: int, kind: str, entity_id: str, league_id: str = None,
+                 label: str = None, photo: str = None) -> bool:
     if not available() or kind not in ("team", "league", "player"):
         return False
     with _pool.connection() as conn:
         conn.execute("""
-            INSERT INTO favorites (tg_id, kind, entity_id, league_id)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO favorites (tg_id, kind, entity_id, league_id, label, photo)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (tg_id, kind, entity_id) DO NOTHING
-        """, (tg_id, kind, entity_id, league_id))
+        """, (tg_id, kind, entity_id, league_id, label, photo))
         # команде сразу заводим настройки уведомлений по умолчанию
         if kind == "team":
             conn.execute("""
@@ -170,7 +176,7 @@ def list_favorites(tg_id: int) -> list[dict]:
         return []
     with _pool.connection() as conn:
         rows = conn.execute("""
-            SELECT f.kind, f.entity_id, f.league_id, t.prefs
+            SELECT f.kind, f.entity_id, f.league_id, f.label, f.photo, t.prefs
             FROM favorites f
             LEFT JOIN team_notify t
                    ON t.tg_id = f.tg_id AND t.entity_id = f.entity_id AND f.kind = 'team'
@@ -179,8 +185,9 @@ def list_favorites(tg_id: int) -> list[dict]:
         """, (tg_id,)).fetchall()
 
     result = []
-    for kind, entity_id, league_id, prefs in rows:
-        item = {"kind": kind, "entity_id": entity_id, "league_id": league_id}
+    for kind, entity_id, league_id, label, photo, prefs in rows:
+        item = {"kind": kind, "entity_id": entity_id, "league_id": league_id,
+                "label": label, "photo": photo}
         if kind == "team":
             item["prefs"] = prefs if isinstance(prefs, dict) else DEFAULT_TEAM_PREFS
         result.append(item)
