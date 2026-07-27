@@ -283,8 +283,33 @@ async function showHome() {
       <h1>🏀 Баскетбол</h1>
       <p class="subtitle">Выбери лигу</p>
     </header>
+    <div id="diag" style="margin:10px 16px;padding:10px;border:2px solid #f5b301;
+         border-radius:10px;font-size:13px;line-height:1.5"></div>
     <main class="container"><div id="leagues" class="muted">Загрузка…</div></main>
   `;
+
+  // ВРЕМЕННАЯ проверка. Уберём, когда разберёмся со звёздами.
+  const diag = document.getElementById("diag");
+  const inTelegram = !!tg;
+  const hasInit = !!(tg && tg.initData);
+  let tapWorks = "ещё не нажимал";
+  const testBtn = document.createElement("button");
+  testBtn.textContent = "☆ тест-звезда (нажми меня)";
+  testBtn.style.cssText = "font-size:15px;padding:8px 14px;margin-top:6px;cursor:pointer";
+  testBtn.addEventListener("click", () => {
+    testBtn.textContent = "★ клик пойман!";
+    testBtn.style.color = "#0a0";
+  });
+  const render = () => {
+    diag.innerHTML =
+      "🔎 <b>Диагностика</b><br>" +
+      "В Telegram: <b>" + (inTelegram ? "да" : "НЕТ") + "</b><br>" +
+      "initData есть: <b>" + (hasInit ? "да" : "НЕТ") + "</b><br>" +
+      "favEnabled: <b>" + (favEnabled ? "да — звёзды должны быть" : "НЕТ — звёзд не будет") + "</b><br>" +
+      "звёзд в избранном: <b>" + favSet.size + "</b>";
+    diag.appendChild(testBtn);
+  };
+  render();
   try {
     const leagues = await api("/api/leagues");
     const box = document.getElementById("leagues");
@@ -306,14 +331,10 @@ async function showHome() {
       card.appendChild(arrow);
 
       // звезда лиги
-      console.log("[диаг] лига", league.id, "favEnabled =", favEnabled);
       if (favEnabled) {
         const star = makeStar("league", league.id, league.id);
         star.classList.add("star-league");
-        star.addEventListener("click", () => console.log("[диаг] КЛИК дошёл до звезды лиги", league.id), true);
-        star.addEventListener("pointerdown", () => console.log("[диаг] pointerdown на звезде", league.id));
         card.appendChild(star);
-        console.log("[диаг] звезда добавлена в карточку", league.id);
       }
       box.appendChild(card);
     }
