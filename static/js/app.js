@@ -112,7 +112,9 @@ function makeStar(kind, entityId, leagueId, stopClick = true) {
   btn.textContent = isFav(kind, entityId) ? "★" : "☆";
   btn.setAttribute("aria-label", "В избранное");
   const onTap = async (e) => {
-    if (stopClick) { e.stopPropagation(); e.preventDefault(); }
+    // глушим всплытие к карточке, чтобы тап по звезде не открывал лигу/команду
+    e.stopPropagation();
+    e.preventDefault();
     if (btn.disabled) return;
     btn.disabled = true;
     const nowFav = await toggleFav(kind, entityId, leagueId);
@@ -120,9 +122,7 @@ function makeStar(kind, entityId, leagueId, stopClick = true) {
     btn.textContent = nowFav ? "★" : "☆";
     btn.disabled = false;
   };
-  // capture=true — обработчик звезды срабатывает раньше клика по карточке,
-  // даже если сверху лежит другой элемент
-  btn.addEventListener("click", onTap, true);
+  btn.addEventListener("click", onTap);
   return btn;
 }
 
@@ -305,12 +305,15 @@ async function showHome() {
       arrow.textContent = "›";
       card.appendChild(arrow);
 
-      // звезда лиги — абсолютно спозиционирована (одинаковое место у всех),
-      // клик по ней не должен открывать лигу
+      // звезда лиги
+      console.log("[диаг] лига", league.id, "favEnabled =", favEnabled);
       if (favEnabled) {
         const star = makeStar("league", league.id, league.id);
         star.classList.add("star-league");
+        star.addEventListener("click", () => console.log("[диаг] КЛИК дошёл до звезды лиги", league.id), true);
+        star.addEventListener("pointerdown", () => console.log("[диаг] pointerdown на звезде", league.id));
         card.appendChild(star);
+        console.log("[диаг] звезда добавлена в карточку", league.id);
       }
       box.appendChild(card);
     }
