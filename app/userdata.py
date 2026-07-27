@@ -111,6 +111,24 @@ def _create_schema() -> None:
             )
         """)
 
+        # Журнал отправленных уведомлений. Фоновая задача крутится раз в минуту,
+        # а условие «за час до матча» истинно все 60 минут подряд — без журнала
+        # уведомление ушло бы 60 раз. Ключ уникальности: кому + про какой матч +
+        # какой повод (hour/min30/min10/start/final/league/player). Раз отправив,
+        # эту тройку сюда пишем и больше не повторяем.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sent_notifications (
+                tg_id       BIGINT NOT NULL REFERENCES users(tg_id) ON DELETE CASCADE,
+                game_id     TEXT NOT NULL,
+                moment      TEXT NOT NULL,
+                sent_at     TIMESTAMPTZ DEFAULT now(),
+                PRIMARY KEY (tg_id, game_id, moment)
+            )
+        """)
+        # Старые записи чистим по дате (матчи давно прошли) — отдельным индексом
+        # по времени, чтобы удаление было быстрым.
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sent_time ON sent_notifications (sent_at)")
+
 
 # ===== Пользователи =====
 def ensure_user(tg_id: int, first_name: str = None, username: str = None) -> None:
@@ -204,6 +222,66 @@ def favorite_ids(tg_id: int) -> list[str]:
             "SELECT kind, entity_id FROM favorites WHERE tg_id = %s", (tg_id,)
         ).fetchall()
     return [f"{kind}:{entity_id}" for kind, entity_id in rows]
+
+
+def all_favorites_for_notify() -> list[dict]:
+    """Все подписки всех пользователей — по ним фоновая задача решает, кому
+    что слать. Для команд прикладываем их настройки уведомлений.
+    Отдаём плоский список: [{tg_id, kind, entity_id, league_id, prefs}]."""
+    if not available():
+        return []
+    with _pool.connection() as conn:
+        rows = conn.execute("""
+            SELECT f.tg_id, f.kind, f.entity_id, f.league_id, t.prefs
+            FROM favorites f
+            LEFT JOIN team_notify t
+                   ON t.tg_id = f.tg_id AND t.entity_id = f.entity_id AND f.kind = 'team'
+        """).fetchall()
+    result = []
+    for tg_id, kind, entity_id, league_id, prefs in rows:
+        item = {"tg_id": tg_id, "kind": kind, "entity_id": entity_id,
+                "league_id": league_id}
+        if kind == "team":
+            item["prefs"] = prefs if isinstance(prefs, dict) else DEFAULT_TEAM_PREFS
+        result.append(item)
+    return result
+
+
+def was_sent(tg_id: int, game_id: str, moment: str) -> bool:
+    """Уже отправляли это уведомление?"""
+    if not available():
+        return True                # без базы считаем «отправлено», чтобы не слать
+    with _pool.connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM sent_notifications WHERE tg_id=%s AND game_id=%s AND moment=%s",
+            (tg_id, game_id, moment),
+        ).fetchone()
+    return bool(row)
+
+
+def mark_sent(tg_id: int, game_id: str, moment: str) -> None:
+    """Отмечает уведомление как отправленное."""
+    if not available():
+        return
+    with _pool.connection() as conn:
+        conn.execute("""
+            INSERT INTO sent_notifications (tg_id, game_id, moment)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (tg_id, game_id, moment) DO NOTHING
+        """, (tg_id, game_id, moment))
+
+
+def cleanup_sent(days: int = 3) -> int:
+    """Убирает записи об уведомлениях старше нескольких дней — матчи давно
+    прошли, хранить незачем. Возвращает, сколько удалено."""
+    if not available():
+        return 0
+    with _pool.connection() as conn:
+        cur = conn.execute(
+            "DELETE FROM sent_notifications WHERE sent_at < now() - make_interval(days => %s)",
+            (days,),
+        )
+        return cur.rowcount
 
 
 def set_team_prefs(tg_id: int, entity_id: str, prefs: dict) -> bool:

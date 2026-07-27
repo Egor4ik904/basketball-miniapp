@@ -214,8 +214,12 @@ async def lifespan(app: FastAPI):
     # прогрев — в фоне, порт открывается сразу
     threading.Thread(target=_background_startup, daemon=True).start()
 
-    # планировщик обновлений
-    app.state.scheduler = start_scheduler(ADAPTERS)
+    # планировщик обновлений. Боту и главному циклу планировщик отдаёт для
+    # рассылки уведомлений (она асинхронная и должна идти в этом цикле).
+    import asyncio
+    loop = asyncio.get_running_loop()
+    notify_bot = tg_bot.bot if config.bot_enabled() else None
+    app.state.scheduler = start_scheduler(ADAPTERS, bot=notify_bot, loop=loop)
 
     # телеграм-бот: регистрируем вебхук, если задан токен
     if config.bot_enabled():

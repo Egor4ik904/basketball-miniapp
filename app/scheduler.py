@@ -162,8 +162,35 @@ def refresh_rosters(adapters):
             print(f"[планировщик] {lid}: составы не обновлены: {e}")
 
 
-def start_scheduler(adapters):
-    """Создаёт планировщик и запускает задачи обновления данных всех лиг."""
+def run_notifications(adapters, bot, loop):
+    """Проход рассылки уведомлений. Планировщик синхронный и в отдельном
+    потоке, а отправка асинхронная и должна идти в главном цикле бота —
+    поэтому передаём корутину в основной event loop и ждём результат."""
+    import asyncio
+    from app import notifier
+    try:
+        future = asyncio.run_coroutine_threadsafe(
+            notifier.check_and_send(adapters, bot), loop)
+        future.result(timeout=50)      # не дольше интервала задачи
+    except Exception as e:
+        print(f"[уведомления] проход прерван: {e}")
+
+
+def cleanup_notifications():
+    """Раз в сутки убирает старые записи журнала уведомлений."""
+    from app import userdata
+    try:
+        removed = userdata.cleanup_sent(days=3)
+        if removed:
+            print(f"[уведомления] журнал очищен: удалено {removed}")
+    except Exception as e:
+        print(f"[уведомления] очистка не удалась: {e}")
+
+
+def start_scheduler(adapters, bot=None, loop=None):
+    """Создаёт планировщик и запускает задачи обновления данных всех лиг.
+    bot и loop нужны для рассылки уведомлений: планировщик работает в фоновом
+    потоке, а отправка сообщений должна идти в основном цикле бота."""
     scheduler = BackgroundScheduler()
 
     # Счёт матчей — часто (live-режим).
@@ -188,6 +215,15 @@ def start_scheduler(adapters):
                       args=[adapters], id="teams")
     scheduler.add_job(refresh_rosters, "interval", hours=24,
                       args=[adapters], id="rosters")
+
+    # Уведомления о матчах — раз в минуту. Работают только если есть бот,
+    # главный цикл и база пользователей (иначе слать некому и нечем).
+    if bot is not None and loop is not None:
+        scheduler.add_job(run_notifications, "interval", minutes=1,
+                          args=[adapters, bot, loop], id="notifications")
+        scheduler.add_job(cleanup_notifications, "interval", hours=24,
+                          id="notify_cleanup")
+        print("[планировщик] рассылка уведомлений включена")
 
     scheduler.start()
     print("[планировщик] Запущен (автообновление данных всех лиг)")
