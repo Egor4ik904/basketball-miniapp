@@ -269,11 +269,15 @@ body {
    длина названия на неё не влияет и они стоят на одном уровне */
 .star-league {
   position: absolute;
-  top: 50%; right: 44px;
+  top: 50%; right: 40px;
   transform: translateY(-50%);
-  padding: 6px 8px;
+  padding: 8px 10px;
+  z-index: 2;                    /* поверх стрелки и текста */
 }
 .star-league:active { transform: translateY(-50%) scale(1.2); }
+
+/* стрелка — просто значок, не должна ловить нажатия (иначе перекрывает звезду) */
+.league-card .arrow { pointer-events: none; }
 
 /* у пункта «Избранное» звезды нет — стрелке вернём обычное место */
 .fav-entry .arrow { position: static; }

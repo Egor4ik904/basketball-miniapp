@@ -111,14 +111,18 @@ function makeStar(kind, entityId, leagueId, stopClick = true) {
   btn.className = "star" + (isFav(kind, entityId) ? " on" : "");
   btn.textContent = isFav(kind, entityId) ? "★" : "☆";
   btn.setAttribute("aria-label", "В избранное");
-  btn.addEventListener("click", async (e) => {
+  const onTap = async (e) => {
     if (stopClick) { e.stopPropagation(); e.preventDefault(); }
+    if (btn.disabled) return;
     btn.disabled = true;
     const nowFav = await toggleFav(kind, entityId, leagueId);
     btn.classList.toggle("on", nowFav);
     btn.textContent = nowFav ? "★" : "☆";
     btn.disabled = false;
-  });
+  };
+  // capture=true — обработчик звезды срабатывает раньше клика по карточке,
+  // даже если сверху лежит другой элемент
+  btn.addEventListener("click", onTap, true);
   return btn;
 }
 
@@ -1033,8 +1037,10 @@ function renderRoster(players, team, league) {
 }
 
 // ===== Экран игрока: статистика за сезон =====
-async function showPlayer(player, team, league) {
-  pushHistory(() => showTeam(team, league));
+async function showPlayer(player, team, league, backFn) {
+  // куда вести кнопкой «Назад»: из состава — в команду, из избранного —
+  // в избранное (там нет настоящей команды, и showTeam сломалась бы)
+  pushHistory(backFn || (() => showTeam(team, league)));
   root.innerHTML = `
     <header class="app-header"><button class="back" id="back">‹ ${esc(team.name)}</button></header>
     <main class="container">
@@ -1320,8 +1326,8 @@ async function renderFavPlayers(items, box) {
     row.addEventListener("click", () => {
       if (!league) return;
       const stubTeam = { id: null, name: "Избранное" };
-      pushHistory(showFavorites);
-      showPlayer({ id: fav.entity_id, name, photo_url: photo }, stubTeam, league);
+      showPlayer({ id: fav.entity_id, name, photo_url: photo }, stubTeam, league,
+                 showFavorites);
     });
     row.appendChild(makeRemoveButton("player", fav.entity_id));
     box.appendChild(row);
