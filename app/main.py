@@ -82,63 +82,85 @@ def adapter_for_entity(entity_id: str):
     return ADAPTERS.get(entity_id.split(":")[0])
 
 
-def warmup() -> None:
-    """Начальная загрузка данных всех лиг при старте (один раз, если пусто).
-    Для каждой лиги грузим команды, таблицу, составы и матчи сезона — если её
-    адаптер это умеет. Ошибка одного источника не мешает остальным (ТЗ 6.4)."""
+def _warmup_fast_one(lid, adapter) -> None:
+    """Быстрая загрузка ОДНОЙ лиги: команды, таблица, матчи, новости.
+    Вынесено отдельно, чтобы гонять лиги параллельно (см. warmup_fast)."""
+    try:
+        if hasattr(adapter, "fetch_teams") and count_teams(lid) == 0:
+            n = save_teams(adapter.fetch_teams())
+            print(f"[старт] {lid}: загружено команд {n}")
+    except Exception as e:
+        print(f"[старт] {lid}: команды не загружены: {e}")
+
+    try:
+        if hasattr(adapter, "fetch_standings") and count_standings(lid) == 0:
+            n = save_standings(adapter.fetch_standings())
+            print(f"[старт] {lid}: загружена таблица ({n} строк)")
+    except Exception as e:
+        print(f"[старт] {lid}: таблица не загружена: {e}")
+
+    try:
+        if hasattr(adapter, "fetch_season_games") and count_games(lid) == 0:
+            n = save_games(adapter.fetch_season_games())
+            print(f"[старт] {lid}: загружено матчей за сезон {n}")
+    except Exception as e:
+        print(f"[старт] {lid}: матчи сезона не загружены: {e}")
+
+    try:
+        n = save_news(news.fetch_league(lid))
+        print(f"[старт] {lid}: новостей добавлено {n}")
+    except Exception as e:
+        print(f"[старт] {lid}: новости не загружены: {e}")
+
+
+def warmup_fast() -> None:
+    """БЫСТРАЯ часть прогрева: список лиг, таблицы, матчи, новости — то, что
+    нужно для первых экранов. Лиги грузятся ПАРАЛЛЕЛЬНО (источники независимы),
+    поэтому общее время примерно как у одной самой медленной лиги, а не сумма
+    трёх. Составы — отдельно и потом, см. warmup_rosters."""
+    import threading
+    threads = []
     for lid, adapter in ADAPTERS.items():
-        # команды
-        try:
-            if hasattr(adapter, "fetch_teams") and count_teams(lid) == 0:
-                n = save_teams(adapter.fetch_teams())
-                print(f"[старт] {lid}: загружено команд {n}")
-        except Exception as e:
-            print(f"[старт] {lid}: команды не загружены: {e}")
+        t = threading.Thread(target=_warmup_fast_one, args=(lid, adapter), daemon=True)
+        t.start()
+        threads.append(t)
+    for t in threads:
+        t.join()
 
-        # турнирная таблица
-        try:
-            if hasattr(adapter, "fetch_standings") and count_standings(lid) == 0:
-                n = save_standings(adapter.fetch_standings())
-                print(f"[старт] {lid}: загружена таблица ({n} строк)")
-        except Exception as e:
-            print(f"[старт] {lid}: таблица не загружена: {e}")
 
-        # Составы всех команд. Каждая команда обрабатывается отдельно:
-        # раньше ошибка на одном клубе обрывала цикл, и лига оставалась
-        # вообще без игроков.
-        try:
-            if hasattr(adapter, "fetch_roster") and count_players(lid) == 0:
-                team_ids = get_team_ids(lid, season_mod.teams_season(lid))
-                print(f"[старт] {lid}: загружаю составы {len(team_ids)} команд...")
-                total, failed = 0, []
-                for tid in team_ids:
-                    try:
-                        total += save_players(adapter.fetch_roster(tid.split(":")[1]))
-                    except Exception as e:
-                        failed.append(f"{tid} ({type(e).__name__})")
-                    time.sleep(0.3)
-                print(f"[старт] {lid}: загружено игроков {total}"
-                      + (f", не удалось: {', '.join(failed)}" if failed else ""))
-        except Exception as e:
-            print(f"[старт] {lid}: составы не загружены: {e}")
+def _warmup_rosters_one(lid, adapter) -> None:
+    """Составы ОДНОЙ лиги. Пауза между командами небольшая — источник не
+    завалить, но и не тянуть: лиги идут параллельно, на каждый источник
+    поток запросов свой."""
+    try:
+        if hasattr(adapter, "fetch_roster") and count_players(lid) == 0:
+            team_ids = get_team_ids(lid, season_mod.teams_season(lid))
+            print(f"[старт] {lid}: загружаю составы {len(team_ids)} команд...")
+            total, failed = 0, []
+            for tid in team_ids:
+                try:
+                    total += save_players(adapter.fetch_roster(tid.split(":")[1]))
+                except Exception as e:
+                    failed.append(f"{tid} ({type(e).__name__})")
+                time.sleep(0.15)
+            print(f"[старт] {lid}: загружено игроков {total}"
+                  + (f", не удалось: {', '.join(failed)}" if failed else ""))
+    except Exception as e:
+        print(f"[старт] {lid}: составы не загружены: {e}")
 
-        # матчи всего сезона — нужны календарю, результатам и сетке плей-офф
-        try:
-            if hasattr(adapter, "fetch_season_games") and count_games(lid) == 0:
-                print(f"[старт] {lid}: загружаю матчи сезона...")
-                n = save_games(adapter.fetch_season_games())
-                print(f"[старт] {lid}: загружено матчей за сезон {n}")
-        except Exception as e:
-            print(f"[старт] {lid}: матчи сезона не загружены: {e}")
 
-        # Новости обновляем при КАЖДОМ старте, а не только когда база пуста.
-        # Это всего несколько запросов на пару секунд, зато сразу видно
-        # изменения в списке лент — не приходится ждать планировщик.
-        try:
-            n = save_news(news.fetch_league(lid))
-            print(f"[старт] {lid}: новостей добавлено {n}")
-        except Exception as e:
-            print(f"[старт] {lid}: новости не загружены: {e}")
+def warmup_rosters() -> None:
+    """МЕДЛЕННАЯ часть: составы всех команд. Десятки запросов — самая долгая
+    операция, поэтому идёт последней, когда первые экраны уже готовы. Лиги
+    грузятся параллельно, так что общее время — как у самой медленной лиги."""
+    import threading
+    threads = []
+    for lid, adapter in ADAPTERS.items():
+        t = threading.Thread(target=_warmup_rosters_one, args=(lid, adapter), daemon=True)
+        t.start()
+        threads.append(t)
+    for t in threads:
+        t.join()
 
 
 def sync_seasons() -> None:
@@ -194,12 +216,21 @@ def _background_startup() -> None:
     try:
         sync_seasons()
         tidy_news()
-        warmup()
+        warmup_fast()          # лиги, таблицы, матчи, новости — за секунды
     except Exception as e:
-        print(f"[старт] прогрев прерван ошибкой: {e}")
+        print(f"[старт] быстрый прогрев прерван ошибкой: {e}")
     finally:
+        # Помечаем готовность УЖЕ здесь: первые экраны наполнены, приложением
+        # можно пользоваться. Составы догрузятся следом и не блокируют старт.
         _warmup_done.set()
-        print("[старт] первичная подготовка данных завершена")
+        print("[старт] первичная подготовка завершена, приложение готово")
+
+    # медленный хвост — составы. Идёт после отметки готовности.
+    try:
+        warmup_rosters()
+        print("[старт] составы загружены")
+    except Exception as e:
+        print(f"[старт] загрузка составов прервана: {e}")
 
 
 @asynccontextmanager

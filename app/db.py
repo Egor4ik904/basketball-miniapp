@@ -10,9 +10,19 @@ DB_PATH = Path(__file__).resolve().parent.parent / "basketball.db"
 
 
 def get_connection() -> sqlite3.Connection:
-    """Соединение с базой. row_factory — читаем данные по именам колонок."""
-    conn = sqlite3.connect(DB_PATH)
+    """Соединение с базой. row_factory — читаем данные по именам колонок.
+
+    timeout=30 и режим WAL нужны для параллельного прогрева: несколько потоков
+    (по одному на лигу) пишут одновременно. WAL позволяет читать во время
+    записи и разводит писателей мягче, а timeout заставляет поток подождать
+    освобождения базы, а не падать сразу с «database is locked»."""
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+    except Exception:
+        pass
     return conn
 
 
