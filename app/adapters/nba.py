@@ -191,9 +191,27 @@ def _month_ranges(start_iso: str, end_iso: str):
         start = nxt
 
 
+# Кеш матчей сезона: (время загрузки, данные). Живёт SEASON_GAMES_TTL секунд.
+_season_games_cache = {"at": 0.0, "games": None, "key": None}
+SEASON_GAMES_TTL = 3 * 60 * 60          # 3 часа — матчи сезона так часто не меняются
+
+
 def fetch_season_games(start: str = SEASON_START, end: str = SEASON_END) -> list[dict]:
-    """Все матчи сезона NBA — по одному запросу на месяц (около девяти запросов).
-    ESPN понимает диапазон дат вида '20251001-20251031'."""
+    """Все матчи сезона NBA — по запросу на месяц (около девяти запросов к ESPN).
+    ESPN понимает диапазон дат вида '20251001-20251031'.
+
+    Результат кешируется на несколько часов. Без этого функция ходила бы в сеть
+    при каждом вызове, а её дёргают часто — в том числе рассылка уведомлений
+    раз в минуту. Это создавало десятки лишних запросов к ESPN ежеминутно
+    (риск блокировки) и всплеск памяти. Кеш это убирает."""
+    import time
+    key = f"{start}-{end}"
+    now = time.time()
+    cached = _season_games_cache
+    if (cached["games"] is not None and cached["key"] == key
+            and now - cached["at"] < SEASON_GAMES_TTL):
+        return cached["games"]
+
     url = f"{ESPN_BASE}/scoreboard"
     games = []
     for first, last in _month_ranges(start, end):
@@ -206,6 +224,8 @@ def fetch_season_games(start: str = SEASON_START, end: str = SEASON_END) -> list
             if parsed:
                 games.append(parsed)
     games.sort(key=lambda g: g["datetime"])
+
+    _season_games_cache.update(at=now, games=games, key=key)
     return games
 
 
@@ -352,6 +372,6 @@ def fetch_boxscore(event_id: str) -> dict:
 
 
 def clear_cache():
-    """У адаптера NBA внутреннего кеша нет — функция нужна для единообразия
-    с остальными адаптерами (планировщик вызывает её у всех)."""
-    return
+    """Сбрасывает кеш матчей сезона, чтобы при следующем обращении данные
+    перечитались свежими. Планировщик зовёт раз в сутки."""
+    _season_games_cache.update(at=0.0, games=None, key=None)
