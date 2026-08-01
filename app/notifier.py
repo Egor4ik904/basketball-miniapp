@@ -171,16 +171,24 @@ def _decide_moments(game, fav, now):
 
 
 async def check_and_send(adapters, bot):
-    """Один проход рассылки. Зовётся планировщиком раз в минуту."""
+    """Один проход рассылки. Зовётся планировщиком раз в пару минут.
+
+    Порядок проверок — от дешёвого к дорогому, чтобы в спокойное время
+    (межсезонье, нет матчей) выходить как можно раньше и не нагружать базу:
+    сперва смотрим ближайшие матчи (лёгкий запрос к кешу матчей в нашей
+    базе), и только если они есть — поднимаем подписки пользователей."""
     if not (userdata.available() and bot):
         return
 
-    favorites = userdata.all_favorites_for_notify()
-    if not favorites:
-        return
-
+    # 1) есть ли вообще матчи в ближайшие часы. Нет матчей — слать нечего,
+    #    выходим, не трогая таблицы подписок.
     games = collect_upcoming_games(adapters)
     if not games:
+        return
+
+    # 2) теперь можно поднять подписки — но только раз матчи есть
+    favorites = userdata.all_favorites_for_notify()
+    if not favorites:
         return
 
     now = datetime.now(timezone.utc)

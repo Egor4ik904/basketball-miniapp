@@ -219,7 +219,10 @@ def start_scheduler(adapters, bot=None, loop=None):
     # Уведомления о матчах — раз в минуту. Работают только если есть бот,
     # главный цикл и база пользователей (иначе слать некому и нечем).
     if bot is not None and loop is not None:
-        scheduler.add_job(run_notifications, "interval", minutes=1,
+        # Раз в 2 минуты: для «за час/30/10 минут» окна широкие, поэтому
+        # секундная точность не нужна, а базу лишний раз не будим. Сама
+        # рассылка ещё и быстро выходит, если ближайших матчей нет.
+        scheduler.add_job(run_notifications, "interval", minutes=2,
                           args=[adapters, bot, loop], id="notifications")
         scheduler.add_job(cleanup_notifications, "interval", hours=24,
                           id="notify_cleanup")
