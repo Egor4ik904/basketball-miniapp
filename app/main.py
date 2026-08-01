@@ -101,7 +101,9 @@ def _warmup_fast_one(lid, adapter) -> None:
 
     try:
         if hasattr(adapter, "fetch_season_games") and count_games(lid) == 0:
-            n = save_games(adapter.fetch_season_games())
+            season_games = adapter.fetch_season_games()
+            n = save_games(season_games)
+            del season_games            # в базе уже есть — в памяти держать незачем
             print(f"[старт] {lid}: загружено матчей за сезон {n}")
     except Exception as e:
         print(f"[старт] {lid}: матчи сезона не загружены: {e}")

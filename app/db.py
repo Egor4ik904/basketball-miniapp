@@ -343,6 +343,26 @@ def get_games(league_id: str, game_date: str) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def get_games_between(date_from: str, date_to: str) -> list[dict]:
+    """Матчи ВСЕХ лиг в диапазоне игровых дат [date_from, date_to] включительно,
+    с названиями команд и league_id. Для рассылки уведомлений: она смотрит
+    только ближайшие дни, поэтому весь сезон в память тянуть не нужно."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT g.id, g.league_id, g.game_date, g.datetime, g.status,
+               g.home_score, g.away_score,
+               g.home_team_id, ht.short_name AS home_short, ht.name AS home_name,
+               g.away_team_id, at.short_name AS away_short, at.name AS away_name
+        FROM games g
+        LEFT JOIN teams ht ON ht.id = g.home_team_id
+        LEFT JOIN teams at ON at.id = g.away_team_id
+        WHERE g.game_date BETWEEN ? AND ?
+        ORDER BY g.datetime
+    """, (date_from, date_to)).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
 def get_games_list(league_id: str, mode: str, limit: int, offset: int) -> dict:
     """Список матчей лиги для вкладок «Результаты» и «Календарь».
 

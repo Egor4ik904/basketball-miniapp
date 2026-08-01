@@ -191,41 +191,25 @@ def _month_ranges(start_iso: str, end_iso: str):
         start = nxt
 
 
-# Кеш матчей сезона: (время загрузки, данные). Живёт SEASON_GAMES_TTL секунд.
-_season_games_cache = {"at": 0.0, "games": None, "key": None}
-SEASON_GAMES_TTL = 3 * 60 * 60          # 3 часа — матчи сезона так часто не меняются
-
-
 def fetch_season_games(start: str = SEASON_START, end: str = SEASON_END) -> list[dict]:
     """Все матчи сезона NBA — по запросу на месяц (около девяти запросов к ESPN).
     ESPN понимает диапазон дат вида '20251001-20251031'.
 
-    Результат кешируется на несколько часов. Без этого функция ходила бы в сеть
-    при каждом вызове, а её дёргают часто — в том числе рассылка уведомлений
-    раз в минуту. Это создавало десятки лишних запросов к ESPN ежеминутно
-    (риск блокировки) и всплеск памяти. Кеш это убирает."""
-    import time
-    key = f"{start}-{end}"
-    now = time.time()
-    cached = _season_games_cache
-    if (cached["games"] is not None and cached["key"] == key
-            and now - cached["at"] < SEASON_GAMES_TTL):
-        return cached["games"]
-
+    Кеша здесь нет намеренно: функцию зовёт прогрев один раз при старте, а
+    рассылка уведомлений берёт ближайшие матчи из базы, а не отсюда. Держать
+    весь сезон в памяти между вызовами незачем."""
     url = f"{ESPN_BASE}/scoreboard"
     games = []
     for first, last in _month_ranges(start, end):
         response = client.get(url, params={"dates": f"{first}-{last}", "limit": 1000})
         response.raise_for_status()
         events = response.json().get("events", [])
-        print(f"   [nba] {first}-{last}: матчей {len(events)}")
         for event in events:
             parsed = _parse_event(event)
             if parsed:
                 games.append(parsed)
     games.sort(key=lambda g: g["datetime"])
-
-    _season_games_cache.update(at=now, games=games, key=key)
+    print(f"[nba] матчи сезона загружены: {len(games)}")
     return games
 
 
@@ -372,6 +356,6 @@ def fetch_boxscore(event_id: str) -> dict:
 
 
 def clear_cache():
-    """Сбрасывает кеш матчей сезона, чтобы при следующем обращении данные
-    перечитались свежими. Планировщик зовёт раз в сутки."""
-    _season_games_cache.update(at=0.0, games=None, key=None)
+    """У адаптера NBA кеша в памяти нет — данные живут в базе. Функция нужна
+    для единообразия: планировщик зовёт clear_cache() у всех адаптеров."""
+    return

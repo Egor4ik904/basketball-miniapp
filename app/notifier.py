@@ -14,7 +14,7 @@
 # Плюс для игрока после матча — статистика (этим займётся этап 4).
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from app import userdata
 from app import config
@@ -101,32 +101,36 @@ def _parse_start(game):
 
 
 # ===== Основной проход =====
-def collect_upcoming_games(adapters):
-    """Собирает матчи всех лиг, у которых есть разбираемое время начала,
-    в ближайшем окне (недавно прошедшие + ближайшие сутки). По ним и решаем,
-    кого уведомлять. Возвращает словарь game_id -> данные матча."""
-    now = datetime.now(timezone.utc)
-    games = {}
-    for lid, adapter in adapters.items():
-        if not hasattr(adapter, "fetch_season_games"):
-            continue
-        try:
-            season_games = adapter.fetch_season_games()
-        except Exception as e:
-            print(f"[уведомления] {lid}: расписание не получить: {e}")
-            continue
+def collect_upcoming_games(adapters=None):
+    """Ближайшие матчи всех лиг для рассылки — берём ИЗ БАЗЫ, а не тянем весь
+    сезон через адаптеры. Рассылке интересны только матчи в окне «недавно
+    закончился .. начнётся в ближайшие сутки», поэтому запрашиваем лишь
+    соседние игровые дни. Это не держит тысячи матчей в памяти и не ходит
+    в сеть каждую минуту. Возвращает словарь game_id -> данные матча."""
+    from app.db import get_games_between
 
-        for g in season_games:
-            start = _parse_start(g)
-            if not start:
-                continue
-            minutes_left = _minutes_until(start, now)
-            # интересны матчи в окне: от «финал недавно» (-4 ч) до «старт через сутки»
-            if -240 <= minutes_left <= 24 * 60:
-                g = dict(g)
-                g["_start"] = start
-                g["_minutes_left"] = minutes_left
-                games[g["id"]] = g
+    now = datetime.now(timezone.utc)
+    # игровой день у нас может отличаться от календарного на несколько часов,
+    # поэтому берём вчера/сегодня/завтра — с запасом на разницу поясов
+    days = [(now + timedelta(days=d)).strftime("%Y-%m-%d") for d in (-1, 0, 1)]
+
+    try:
+        rows = get_games_between(min(days), max(days))
+    except Exception as e:
+        print(f"[уведомления] матчи из базы не получить: {e}")
+        return {}
+
+    games = {}
+    for g in rows:
+        start = _parse_start(g)
+        if not start:
+            continue
+        minutes_left = _minutes_until(start, now)
+        if -240 <= minutes_left <= 24 * 60:
+            g = dict(g)
+            g["_start"] = start
+            g["_minutes_left"] = minutes_left
+            games[g["id"]] = g
     return games
 
 
