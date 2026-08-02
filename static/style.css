@@ -347,3 +347,49 @@ body {
 .odds-label { color: var(--muted); }
 .odds-vals { color: var(--text); letter-spacing: 0.2px; }
 .odds-vals b { color: var(--accent); font-weight: 700; }
+
+/* ===== Переключатель языка ===== */
+/* app-header — контейнер для абсолютного значка языка */
+.app-header { position: relative; }
+
+.lang-btn {
+  position: absolute;
+  top: 0; right: 0;
+  background: var(--card);
+  border: 1px solid #2a2f3a;
+  border-radius: 20px;
+  font-size: 20px;
+  line-height: 1;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.lang-btn:active { transform: scale(0.94); }
+
+.lang-menu {
+  position: fixed;
+  top: 56px; right: 16px;
+  background: var(--card);
+  border: 1px solid #2a2f3a;
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  min-width: 160px;
+}
+.lang-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 15px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.lang-item:active { background: var(--bg); }
+.lang-item.active { color: var(--accent); font-weight: 600; }
+.lang-flag { font-size: 18px; }

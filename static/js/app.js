@@ -110,7 +110,7 @@ function makeStar(kind, entityId, leagueId, stopClick = true) {
   const btn = document.createElement("button");
   btn.className = "star" + (isFav(kind, entityId) ? " on" : "");
   btn.textContent = isFav(kind, entityId) ? "★" : "☆";
-  btn.setAttribute("aria-label", "В избранное");
+  btn.setAttribute("aria-label", t("add_to_fav"));
   const onTap = async (e) => {
     // глушим всплытие к карточке, чтобы тап по звезде не открывал лигу/команду
     e.stopPropagation();
@@ -243,27 +243,23 @@ function avatarHtml(person, className) {
   return `<div class="${className} avatar-fallback">${esc(initials(person.name))}</div>`;
 }
 
-const MONTHS_RU = ["января", "февраля", "марта", "апреля", "мая", "июня",
-                   "июля", "августа", "сентября", "октября", "ноября", "декабря"];
-const WEEKDAYS_RU = ["воскресенье", "понедельник", "вторник", "среда",
-                     "четверг", "пятница", "суббота"];
-
 function formatDayTitle(iso) {
-  // '2026-06-12' -> '12 июня, пятница' (для сегодня/вчера/завтра — словами)
+  // '2026-06-12' -> '12 июня, пятница' (сегодня/вчера/завтра — словами).
+  // Месяцы и дни недели берём из переводов текущего языка.
   if (!iso || iso.length < 10) return "";
   const today = todayStr();
   const d = new Date(iso + "T12:00:00");
   const diff = Math.round((d - new Date(today + "T12:00:00")) / 86400000);
-  if (diff === 0) return "Сегодня";
-  if (diff === -1) return "Вчера";
-  if (diff === 1) return "Завтра";
-  return `${d.getDate()} ${MONTHS_RU[d.getMonth()]}, ${WEEKDAYS_RU[d.getDay()]}`;
+  if (diff === 0) return t("today");
+  if (diff === -1) return t("yesterday");
+  if (diff === 1) return t("tomorrow");
+  return `${d.getDate()} ${t("months")[d.getMonth()]}, ${t("weekdays")[d.getDay()]}`;
 }
 
-// Как ESPN называет конференции -> как показываем мы.
-const CONFERENCE_NAMES = {
-  "Eastern Conference": "Восток",
-  "Western Conference": "Запад",
+// Как ESPN называет конференции -> ключ перевода.
+const CONFERENCE_KEYS = {
+  "Eastern Conference": "conf_east",
+  "Western Conference": "conf_west",
 };
 
 let boxActiveTeam = 0;            // активная команда на экране матча
@@ -276,15 +272,64 @@ let newsOffset = 0;               // сколько новостей уже по
 const NEWS_PAGE = 20;             // размер страницы новостей
 
 // ===== Главный экран: список лиг =====
+// Значок смены языка на главной. Показывает флаг текущего языка; по нажатию
+// открывает выбор из доступных. После выбора запоминаем и перерисовываем.
+function setupLangButton() {
+  const btn = document.getElementById("lang-btn");
+  if (!btn) return;
+  const cur = LANGUAGES.find(l => l.code === getLang()) || LANGUAGES[0];
+  btn.textContent = cur.flag;
+  btn.onclick = () => showLangMenu(btn);
+}
+
+function showLangMenu(anchor) {
+  // простое меню поверх экрана
+  const existing = document.getElementById("lang-menu");
+  if (existing) { existing.remove(); return; }
+
+  const menu = document.createElement("div");
+  menu.id = "lang-menu";
+  menu.className = "lang-menu";
+  LANGUAGES.forEach(l => {
+    const item = document.createElement("button");
+    item.className = "lang-item" + (l.code === getLang() ? " active" : "");
+    item.innerHTML = `<span class="lang-flag">${l.flag}</span> ${esc(l.label)}`;
+    item.onclick = async () => {
+      menu.remove();
+      if (l.code !== getLang()) {
+        setLang(l.code);
+        await saveLangPref(l.code);
+        resetHistory();
+        showHome();              // перерисовываем на новом языке
+      }
+    };
+    menu.appendChild(item);
+  });
+  document.body.appendChild(menu);
+
+  // закрытие по клику мимо меню
+  setTimeout(() => {
+    const closer = (e) => {
+      if (!menu.contains(e.target) && e.target !== anchor) {
+        menu.remove();
+        document.removeEventListener("click", closer);
+      }
+    };
+    document.addEventListener("click", closer);
+  }, 0);
+}
+
 async function showHome() {
   resetHistory();
   root.innerHTML = `
     <header class="app-header">
-      <h1>🏀 Баскетбол</h1>
-      <p class="subtitle">Выбери лигу</p>
+      <button class="lang-btn" id="lang-btn" aria-label="Language"></button>
+      <h1>${t("app_title")}</h1>
+      <p class="subtitle">${t("choose_league")}</p>
     </header>
-    <main class="container"><div id="leagues" class="muted">Загрузка…</div></main>
+    <main class="container"><div id="leagues" class="muted">${t("loading")}</div></main>
   `;
+  setupLangButton();
   try {
     const leagues = await api("/api/leagues");
     const box = document.getElementById("leagues");
@@ -296,7 +341,7 @@ async function showHome() {
       card.innerHTML = `
         <div class="league-info">
           <div class="league-name">${esc(league.name)}</div>
-          <div class="league-season">Сезон ${esc(league.season_label)}</div>
+          <div class="league-season">${t("season")} ${esc(league.season_label)}</div>
         </div>`;
       card.addEventListener("click", () => { pushHistory(showHome); showLeague(league); });
 
@@ -321,15 +366,15 @@ async function showHome() {
       favBtn.className = "league-card fav-entry";
       favBtn.innerHTML = `
         <div class="league-info">
-          <div class="league-name">⭐ Избранное</div>
-          <div class="league-season">Твои лиги, команды и игроки</div>
+          <div class="league-name">${t("favorites")}</div>
+          <div class="league-season">${t("favorites_sub")}</div>
         </div>
         <div class="arrow">›</div>`;
       favBtn.addEventListener("click", () => { pushHistory(showHome); showFavorites(); });
       box.appendChild(favBtn);
     }
   } catch (e) {
-    document.getElementById("leagues").textContent = "Не удалось загрузить лиги 😕";
+    document.getElementById("leagues").textContent = t("err_leagues");
   }
 }
 
@@ -346,7 +391,7 @@ function showLeague(league, activeTab = "standings") {
       <button class="tab" data-tab="news">Новости</button>
       <button class="tab" data-tab="teams">Команды</button>
     </nav>
-    <main class="container"><div id="tab-content" class="muted">Загрузка…</div></main>
+    <main class="container"><div id="tab-content" class="muted">${t("loading")}</div></main>
   `;
   document.getElementById("back").addEventListener("click", goBack);
 
@@ -365,7 +410,7 @@ function showLeague(league, activeTab = "standings") {
 async function openTab(league, tabName) {
   const content = document.getElementById("tab-content");
   content.className = "muted";
-  content.textContent = "Загрузка…";
+  content.textContent = t("loading");
 
   if (tabName === "standings") {
     showStandingsTab(league);
@@ -387,7 +432,7 @@ function showStandingsTab(league) {
       <button class="subtab" data-sub="table">Регулярный чемпионат</button>
       <button class="subtab" data-sub="bracket">Плей-офф</button>
     </div>
-    <div id="sub-content" class="muted">Загрузка…</div>
+    <div id="sub-content" class="muted">${t("loading")}</div>
   `;
 
   const subtabs = content.querySelectorAll(".subtab");
@@ -407,7 +452,7 @@ function showStandingsTab(league) {
 async function loadStandingsSub(league) {
   const box = document.getElementById("sub-content");
   box.className = "muted";
-  box.textContent = "Загрузка…";
+  box.textContent = t("loading");
   try {
     if (standingsSubTab === "bracket") {
       renderBracket(await api(`/api/leagues/${league.id}/bracket`), league);
@@ -416,7 +461,7 @@ async function loadStandingsSub(league) {
     }
   } catch (e) {
     box.className = "muted";
-    box.textContent = "Не удалось загрузить данные 😕";
+    box.textContent = t("err_data");
   }
 }
 
@@ -425,7 +470,7 @@ function renderStandings(standings) {
   const content = document.getElementById("sub-content");
   if (!standings || standings.length === 0) {
     content.className = "muted";
-    content.textContent = "Таблицы пока нет (данные появятся в сезон).";
+    content.textContent = t("empty_standings");
     return;
   }
   content.className = "";
@@ -433,14 +478,14 @@ function renderStandings(standings) {
 
   const byConf = {};
   for (const row of standings) {
-    const c = row.conference || "Таблица";
+    const c = row.conference || t("tab_standings");
     (byConf[c] = byConf[c] || []).push(row);
   }
 
   for (const conf of Object.keys(byConf)) {
     const title = document.createElement("h2");
     title.className = "section-title";
-    title.textContent = CONFERENCE_NAMES[conf] || conf;
+    title.textContent = CONFERENCE_KEYS[conf] ? t(CONFERENCE_KEYS[conf]) : conf;
     content.appendChild(title);
 
     const table = document.createElement("div");
@@ -469,7 +514,7 @@ function renderBracket(rounds, league) {
   const box = document.getElementById("sub-content");
   if (!rounds || rounds.length === 0) {
     box.className = "muted";
-    box.textContent = "Плей-офф ещё не начался.";
+    box.textContent = t("empty_playoff");
     return;
   }
   box.className = "";
@@ -495,7 +540,7 @@ function renderBracket(rounds, league) {
       if (showConfTitles && conference) {
         const sub = document.createElement("div");
         sub.className = "conf-title";
-        sub.textContent = CONFERENCE_NAMES[conference] || conference;
+        sub.textContent = CONFERENCE_KEYS[conference] ? t(CONFERENCE_KEYS[conference]) : conference;
         box.appendChild(sub);
       }
       for (const series of list) {
@@ -522,8 +567,8 @@ function buildSeriesCard(series, league) {
 
   const played = series.games.length;
   const note = series.completed
-    ? "серия завершена"
-    : (played ? `сыграно матчей: ${played}` : "серия ещё не началась");
+    ? t("series_finished")
+    : (played ? `сыграно матчей: ${played}` : t("series_not_started"));
 
   card.innerHTML = `
     <div class="series-teams">
@@ -542,7 +587,7 @@ function buildSeriesCard(series, league) {
 
   card.querySelector(".series-foot").addEventListener("click", () => {
     const nowHidden = gamesBox.classList.toggle("hidden");
-    toggleLabel.textContent = nowHidden ? "Матчи ▾" : "Матчи ▴";
+    toggleLabel.textContent = nowHidden ? t("games_expand") : t("games_collapse");
 
     // список матчей строим один раз, при первом раскрытии
     if (!nowHidden && !gamesBox.dataset.filled) {
@@ -577,14 +622,14 @@ function showGames(league) {
     <div class="subtabs">
       <button class="subtab" data-sub="results">Результаты</button>
       <button class="subtab" data-sub="schedule">Календарь</button>
-      <button class="subtab subtab-narrow" data-sub="date" title="Выбрать дату">📅</button>
+      <button class="subtab subtab-narrow" data-sub="date" title=t("pick_date")>📅</button>
     </div>
     <div id="date-bar" class="date-bar hidden">
       <button class="date-nav" id="prev-day">‹</button>
       <input type="date" id="date-input" value="${gamesDate}">
       <button class="date-nav" id="next-day">›</button>
     </div>
-    <div id="games-list" class="muted">Загрузка…</div>
+    <div id="games-list" class="muted">${t("loading")}</div>
   `;
 
   const subtabs = content.querySelectorAll(".subtab");
@@ -620,13 +665,13 @@ async function loadGamesByDate(league) {
   const box = document.getElementById("games-list");
   document.getElementById("date-input").value = gamesDate;
   box.className = "muted";
-  box.textContent = "Загрузка…";
+  box.textContent = t("loading");
 
   try {
     const games = await api(`/api/leagues/${league.id}/games?date=${gamesDate}`);
     if (!games || games.length === 0) {
       box.className = "muted";
-      box.textContent = "На эту дату матчей нет.";
+      box.textContent = t("empty_games_date");
       return;
     }
     box.className = "";
@@ -635,7 +680,7 @@ async function loadGamesByDate(league) {
     appendGames(games, league, box);
   } catch (e) {
     box.className = "muted";
-    box.textContent = "Не удалось загрузить матчи 😕";
+    box.textContent = t("err_games");
   }
 }
 
@@ -655,7 +700,7 @@ async function loadGames(league, reset) {
   if (reset) {
     gamesOffset = 0;
     box.className = "muted";
-    box.textContent = "Загрузка…";
+    box.textContent = t("loading");
     box.dataset.lastDate = "";
   }
 
@@ -669,8 +714,8 @@ async function loadGames(league, reset) {
       if (games.length === 0) {
         box.className = "muted";
         box.textContent = gamesSubTab === "schedule"
-          ? "Межсезонье — ближайших матчей пока нет. Загляни в «Результаты»."
-          : "Сыгранных матчей пока нет.";
+          ? t("empty_offseason")
+          : t("empty_played");
         return;
       }
       box.className = "";
@@ -687,10 +732,10 @@ async function loadGames(league, reset) {
     if (result.has_more) {
       const more = document.createElement("button");
       more.className = "load-more";
-      more.textContent = "Показать ещё";
+      more.textContent = t("show_more");
       more.addEventListener("click", () => {
         more.disabled = true;
-        more.textContent = "Загрузка…";
+        more.textContent = t("loading");
         loadGames(league, false);
       });
       box.appendChild(more);
@@ -698,7 +743,7 @@ async function loadGames(league, reset) {
   } catch (e) {
     if (reset) {
       box.className = "muted";
-      box.textContent = "Не удалось загрузить матчи 😕";
+      box.textContent = t("err_games");
     }
   }
 }
@@ -725,7 +770,7 @@ function appendGames(games, league, box) {
 function buildGameCard(g, league, homeFirst) {
   const finished = g.status === "final";
   const live = g.status === "live";
-  const statusText = finished ? "Финал" : (live ? "LIVE" : formatTime(g.datetime));
+  const statusText = finished ? t("status_final") : (live ? "LIVE" : formatTime(g.datetime));
   const showScore = finished || live;
 
   // У матчей плей-офф и предсезонки показываем стадию, у регулярки — тур.
@@ -804,7 +849,7 @@ function buildOddsBlock(odds, homeFirst, g) {
 async function showNews(league) {
   const content = document.getElementById("tab-content");
   content.className = "";
-  content.innerHTML = `<div id="news-list" class="muted">Загрузка…</div>`;
+  content.innerHTML = `<div id="news-list" class="muted">${t("loading")}</div>`;
   loadNews(league, true);
 }
 
@@ -814,7 +859,7 @@ async function loadNews(league, reset) {
   if (reset) {
     newsOffset = 0;
     box.className = "muted";
-    box.textContent = "Загрузка…";
+    box.textContent = t("loading");
   }
 
   try {
@@ -826,7 +871,7 @@ async function loadNews(league, reset) {
     if (reset) {
       if (items.length === 0) {
         box.className = "muted";
-        box.textContent = "Новостей пока нет.";
+        box.textContent = t("empty_news");
         return;
       }
       box.className = "";
@@ -842,10 +887,10 @@ async function loadNews(league, reset) {
     if (result.has_more) {
       const more = document.createElement("button");
       more.className = "load-more";
-      more.textContent = "Показать ещё";
+      more.textContent = t("show_more");
       more.addEventListener("click", () => {
         more.disabled = true;
-        more.textContent = "Загрузка…";
+        more.textContent = t("loading");
         loadNews(league, false);
       });
       box.appendChild(more);
@@ -853,7 +898,7 @@ async function loadNews(league, reset) {
   } catch (e) {
     if (reset) {
       box.className = "muted";
-      box.textContent = "Не удалось загрузить новости 😕";
+      box.textContent = t("err_news");
     }
   }
 }
@@ -888,8 +933,8 @@ function formatNewsDate(iso) {
   const day = iso.slice(0, 10);
   const today = todayStr();
   if (day === today) return `сегодня, ${iso.slice(11, 16)}`;
-  if (day === addDays(today, -1)) return "вчера";
-  return `${Number(iso.slice(8, 10))} ${MONTHS_RU[Number(iso.slice(5, 7)) - 1]}`;
+  if (day === addDays(today, -1)) return t("yesterday").toLowerCase();
+  return `${Number(iso.slice(8, 10))} ${t("months")[Number(iso.slice(5, 7)) - 1]}`;
 }
 
 // ===== Экран матча: box score =====
@@ -897,17 +942,17 @@ function formatNewsDate(iso) {
 // (мы попадаем сюда и из списка матчей, и из сетки плей-офф).
 async function showBoxScore(game, league, returnTab = "games") {
   pushHistory(() => showLeague(league, returnTab));
-  const backLabel = returnTab === "standings" ? "‹ Плей-офф" : "‹ Матчи";
+  const backLabel = returnTab === "standings" ? t("back_to_playoff") : t("back_to_games");
   root.innerHTML = `
     <header class="app-header"><button class="back" id="back">${backLabel}</button></header>
-    <main class="container"><div id="box" class="muted">Загрузка…</div></main>
+    <main class="container"><div id="box" class="muted">${t("loading")}</div></main>
   `;
   document.getElementById("back").addEventListener("click", goBack);
 
   try {
     renderBoxScore(await api(`/api/games/${game.id}/boxscore`), league);
   } catch (e) {
-    document.getElementById("box").textContent = "Не удалось загрузить статистику матча 😕";
+    document.getElementById("box").textContent = t("err_boxscore");
   }
 }
 
@@ -915,7 +960,7 @@ function renderBoxScore(box, league) {
   const el = document.getElementById("box");
   if (!box || !box.teams || box.teams.length < 2) {
     el.className = "muted";
-    el.textContent = "Статистика матча недоступна.";
+    el.textContent = t("empty_boxscore");
     return;
   }
   boxActiveTeam = 0;
@@ -930,7 +975,7 @@ function renderBoxScore(box, league) {
 
   const numQ = Math.max(ordered[0].quarters.length, ordered[1].quarters.length);
   const qHeaders = [];
-  for (let i = 0; i < numQ; i++) qHeaders.push(i < 4 ? String(i + 1) : "ОТ");
+  for (let i = 0; i < numQ; i++) qHeaders.push(i < 4 ? String(i + 1) : t("box_from"));
 
   const qRow = (t) => `
     <div class="ls-row">
@@ -1007,7 +1052,7 @@ function renderTeams(teams, league) {
   const content = document.getElementById("tab-content");
   if (!teams || teams.length === 0) {
     content.className = "muted";
-    content.textContent = "Команд пока нет.";
+    content.textContent = t("empty_teams");
     return;
   }
   content.className = "";
@@ -1039,14 +1084,14 @@ async function showTeam(team, league) {
       <button class="back" id="back">‹ ${esc(league.name)}</button>
       <div class="team-head"><img class="team-head-logo" src="${safeUrl(team.logo_url)}" alt=""><h1>${esc(team.name)}</h1></div>
     </header>
-    <main class="container"><div id="roster" class="muted">Загрузка…</div></main>
+    <main class="container"><div id="roster" class="muted">${t("loading")}</div></main>
   `;
   document.getElementById("back").addEventListener("click", goBack);
 
   try {
     renderRoster(await api(`/api/teams/${team.id}/roster`), team, league);
   } catch (e) {
-    document.getElementById("roster").textContent = "Не удалось загрузить состав 😕";
+    document.getElementById("roster").textContent = t("err_roster");
   }
 }
 
@@ -1054,7 +1099,7 @@ function renderRoster(players, team, league) {
   const box = document.getElementById("roster");
   if (!players || players.length === 0) {
     box.className = "muted";
-    box.textContent = "Состав пока не загружен.";
+    box.textContent = t("empty_roster");
     return;
   }
   box.className = "";
@@ -1092,7 +1137,7 @@ async function showPlayer(player, team, league, backFn) {
         <div class="player-card-sub">${esc(player.position)}${player.number ? " · #" + esc(player.number) : ""}${player.height ? " · " + esc(player.height) : ""}</div>
         <div id="player-star"></div>
       </div>
-      <div id="stats" class="muted">Загрузка статистики…</div>
+      <div id="stats" class="muted">${t("loading")}</div>
     </main>
   `;
   document.getElementById("back").addEventListener("click", goBack);
@@ -1103,7 +1148,7 @@ async function showPlayer(player, team, league, backFn) {
     const btn = document.createElement("button");
     const setLook = (on) => {
       btn.className = "fav-button" + (on ? " on" : "");
-      btn.textContent = on ? "★ В избранном" : "☆ В избранное";
+      btn.textContent = on ? t("in_fav") : t("add_to_fav_btn");
     };
     setLook(isFav("player", player.id));
     btn.addEventListener("click", async () => {
@@ -1119,7 +1164,7 @@ async function showPlayer(player, team, league, backFn) {
   try {
     renderStats(await api(`/api/players/${player.id}/stats`));
   } catch (e) {
-    document.getElementById("stats").textContent = "Не удалось загрузить статистику 😕";
+    document.getElementById("stats").textContent = t("err_stats");
   }
 }
 
@@ -1127,16 +1172,16 @@ function renderStats(stats) {
   const box = document.getElementById("stats");
   if (!stats) {
     box.className = "muted";
-    box.textContent = "Статистики за сезон нет.";
+    box.textContent = t("empty_player_stats");
     return;
   }
   box.className = "";
   box.innerHTML = "";
 
   const main = [
-    { label: "Очки", value: stats.pts },
-    { label: "Подборы", value: stats.reb },
-    { label: "Передачи", value: stats.ast },
+    { label: t("stat_points"), value: stats.pts },
+    { label: t("stat_rebounds"), value: stats.reb },
+    { label: t("stat_assists"), value: stats.ast },
   ];
   const mainGrid = document.createElement("div");
   mainGrid.className = "stat-main";
@@ -1149,9 +1194,9 @@ function renderStats(stats) {
   box.appendChild(mainGrid);
 
   const more = [
-    { label: "Игры", value: stats.games_played }, { label: "Минуты", value: stats.minutes },
-    { label: "Перехваты", value: stats.stl }, { label: "Блоки", value: stats.blk },
-    { label: "Потери", value: stats.tov }, { label: "FG %", value: stats.fg_pct },
+    { label: t("tab_games"), value: stats.games_played }, { label: t("stat_minutes"), value: stats.minutes },
+    { label: t("stat_steals"), value: stats.stl }, { label: t("stat_blocks"), value: stats.blk },
+    { label: t("stat_turnovers"), value: stats.tov }, { label: "FG %", value: stats.fg_pct },
     { label: "3P %", value: stats.fg3_pct }, { label: "FT %", value: stats.ft_pct },
   ];
   const moreGrid = document.createElement("div");
@@ -1172,39 +1217,41 @@ function renderStats(stats) {
 
 let favActiveTab = "team";           // какой раздел открыт: team | league | player
 
-const FAV_TABS = [
-  { key: "team", label: "Команды" },
-  { key: "league", label: "Лиги" },
-  { key: "player", label: "Игроки" },
-];
+function favTabs() {
+  return [
+    { key: "team", label: t("fav_teams") },
+    { key: "league", label: t("fav_leagues") },
+    { key: "player", label: t("fav_players") },
+  ];
+}
 
 // Моменты уведомлений команды — подписи и порядок.
 const NOTIFY_MOMENTS = [
-  { key: "hour", label: "За час" },
-  { key: "min30", label: "За 30 мин" },
-  { key: "min10", label: "За 10 мин" },
-  { key: "start", label: "Старт матча" },
-  { key: "final", label: "Финальный счёт" },
+  { key: "hour", label: t("notify_hour") },
+  { key: "min30", label: t("notify_min30") },
+  { key: "min10", label: t("notify_min10") },
+  { key: "start", label: t("notify_start") },
+  { key: "final", label: t("notify_final") },
 ];
 
 async function showFavorites() {
   root.innerHTML = `
     <header class="app-header">
-      <button class="back" id="back">‹ Назад</button>
-      <h1>⭐ Избранное</h1>
+      <button class="back" id="back">${t("back")}</button>
+      <h1>${t("favorites")}</h1>
     </header>
     <nav class="tabs" id="fav-tabs"></nav>
-    <main class="container"><div id="fav-content" class="muted">Загрузка…</div></main>
+    <main class="container"><div id="fav-content" class="muted">${t("loading")}</div></main>
   `;
   document.getElementById("back").addEventListener("click", goBack);
 
   const tabsBox = document.getElementById("fav-tabs");
-  FAV_TABS.forEach(t => {
+  favTabs().forEach(tab => {
     const btn = document.createElement("button");
-    btn.className = "tab" + (t.key === favActiveTab ? " active" : "");
-    btn.textContent = t.label;
+    btn.className = "tab" + (tab.key === favActiveTab ? " active" : "");
+    btn.textContent = tab.label;
     btn.addEventListener("click", () => {
-      favActiveTab = t.key;
+      favActiveTab = tab.key;
       tabsBox.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       renderFavList();
@@ -1242,7 +1289,7 @@ async function getTeamsMap(leagueId) {
 async function renderFavList() {
   const box = document.getElementById("fav-content");
   box.className = "muted";
-  box.textContent = "Загрузка…";
+  box.textContent = t("loading");
 
   let favorites;
   try {
@@ -1250,7 +1297,7 @@ async function renderFavList() {
     favorites = (data && data.data) || [];
   } catch (e) {
     box.className = "muted";
-    box.textContent = "Не удалось загрузить избранное 😕";
+    box.textContent = t("err_favorites");
     return;
   }
 
@@ -1269,9 +1316,9 @@ async function renderFavList() {
 }
 
 function emptyText(kind) {
-  if (kind === "league") return "Нет избранных лиг. Добавь их звёздочкой на главной.";
-  if (kind === "team") return "Нет избранных команд. Добавь их звёздочкой в списке команд лиги.";
-  return "Нет избранных игроков. Добавь их на карточке игрока.";
+  if (kind === "league") return t("fav_empty_leagues");
+  if (kind === "team") return t("fav_empty_teams");
+  return t("fav_empty_players");
 }
 
 // --- Раздел «Лиги» ---
@@ -1346,7 +1393,7 @@ async function renderFavPlayers(items, box) {
     // Имя и фото сохранены в момент добавления (в карточке игрока они есть),
     // поэтому лишних запросов не делаем. Если подписи почему-то нет (старая
     // запись до этого обновления) — показываем «Игрок» вместо кода.
-    const name = fav.label || "Игрок";
+    const name = fav.label || t("fav_players");
     const photo = fav.photo || null;
     const league = leagues[fav.league_id];
 
@@ -1358,7 +1405,7 @@ async function renderFavPlayers(items, box) {
     row.innerHTML = `${avatar}
       <div class="fav-main">
         <div class="fav-name">${esc(name)}</div>
-        <div class="fav-sub">${esc(league ? league.name : "")} · статистика после матчей</div>
+        <div class="fav-sub">${esc(league ? league.name : "")} · ${t("player_stats_after")}</div>
       </div>`;
 
     // Открываем карточку игрока. Команда игрока нам тут неизвестна (мы её не
@@ -1367,7 +1414,7 @@ async function renderFavPlayers(items, box) {
     // Заголовок «назад» просто вернёт в избранное.
     row.addEventListener("click", () => {
       if (!league) return;
-      const stubTeam = { id: null, name: "Избранное" };
+      const stubTeam = { id: null, name: t("favorites") };
       showPlayer({ id: fav.entity_id, name, photo_url: photo }, stubTeam, league,
                  showFavorites);
     });
@@ -1381,7 +1428,7 @@ function makeRemoveButton(kind, entityId) {
   const btn = document.createElement("button");
   btn.className = "fav-remove";
   btn.textContent = "✕";
-  btn.setAttribute("aria-label", "Убрать из избранного");
+  btn.setAttribute("aria-label", t("remove_from_fav"));
   btn.addEventListener("click", async (e) => {
     e.stopPropagation();
     btn.disabled = true;
@@ -1391,6 +1438,33 @@ function makeRemoveButton(kind, entityId) {
   return btn;
 }
 
+// Запоминание выбранного языка. Внутри Telegram — в облачном хранилище
+// пользователя (переживёт перезаход). Вне Telegram — только на время сессии.
+async function saveLangPref(code) {
+  try {
+    if (tg && tg.CloudStorage && tg.CloudStorage.setItem) {
+      tg.CloudStorage.setItem("lang", code);
+    }
+  } catch (e) { /* не критично */ }
+}
+
+function loadLangPref() {
+  return new Promise((resolve) => {
+    try {
+      if (tg && tg.CloudStorage && tg.CloudStorage.getItem) {
+        tg.CloudStorage.getItem("lang", (err, value) => {
+          if (!err && value && TRANSLATIONS[value]) setLang(value);
+          resolve();
+        });
+        return;
+      }
+    } catch (e) { /* ignore */ }
+    resolve();
+  });
+}
+
 // старт приложения
 initTelegram();
-loadFavorites().finally(showHome);
+loadLangPref()
+  .then(loadFavorites)
+  .finally(showHome);
