@@ -376,7 +376,9 @@ body {
   padding: 6px;
   z-index: 100;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-  min-width: 160px;
+  min-width: 180px;
+  max-height: 70vh;
+  overflow-y: auto;
 }
 .lang-item {
   display: flex;
@@ -394,4 +396,14 @@ body {
 }
 .lang-item:active { background: var(--bg); }
 .lang-item.active { color: var(--accent); font-weight: 600; }
-.lang-flag { font-size: 18px; }
+.lang-flag {
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 26px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px solid #2a2f3a;
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+.lang-item.active .lang-flag { color: var(--accent); border-color: var(--accent); }

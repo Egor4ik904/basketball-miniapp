@@ -278,7 +278,7 @@ function setupLangButton() {
   const btn = document.getElementById("lang-btn");
   if (!btn) return;
   const cur = LANGUAGES.find(l => l.code === getLang()) || LANGUAGES[0];
-  btn.textContent = cur.flag;
+  btn.textContent = cur.short;
   btn.onclick = () => showLangMenu(btn);
 }
 
@@ -293,7 +293,7 @@ function showLangMenu(anchor) {
   LANGUAGES.forEach(l => {
     const item = document.createElement("button");
     item.className = "lang-item" + (l.code === getLang() ? " active" : "");
-    item.innerHTML = `<span class="lang-flag">${l.flag}</span> ${esc(l.label)}`;
+    item.innerHTML = `<span class="lang-flag">${l.short}</span> ${esc(l.label)}`;
     item.onclick = async () => {
       menu.remove();
       if (l.code !== getLang()) {
