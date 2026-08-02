@@ -327,3 +327,23 @@ body {
 }
 .notify-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .notify-chip:active { transform: scale(0.96); }
+
+/* ===== Коэффициенты у матча ===== */
+/* Показываются только если пришли — карточка без них выглядит как прежде. */
+.odds-block {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #2a2f3a;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.odds-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+.odds-label { color: var(--muted); }
+.odds-vals { color: var(--text); letter-spacing: 0.2px; }
+.odds-vals b { color: var(--accent); font-weight: 700; }

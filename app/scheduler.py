@@ -162,6 +162,15 @@ def refresh_rosters(adapters):
             print(f"[планировщик] {lid}: составы не обновлены: {e}")
 
 
+def refresh_odds_job(adapters):
+    """Фоновое обновление коэффициентов ближайших матчей."""
+    from app import odds
+    try:
+        odds.refresh_odds(adapters)
+    except Exception as e:
+        print(f"[коэффициенты] обновление не удалось: {e}")
+
+
 def run_notifications(adapters, bot, loop):
     """Проход рассылки уведомлений. Планировщик синхронный и в отдельном
     потоке, а отправка асинхронная и должна идти в главном цикле бота —
@@ -215,6 +224,14 @@ def start_scheduler(adapters, bot=None, loop=None):
                       args=[adapters], id="teams")
     scheduler.add_job(refresh_rosters, "interval", hours=24,
                       args=[adapters], id="rosters")
+
+    # коэффициенты (NBA и Евролига) — раз в 3 часа, если задан ключ. Экономно
+    # к лимиту: коэффициенты складываются в базу, пользователи читают оттуда.
+    from app import config as _cfg
+    if _cfg.odds_enabled():
+        scheduler.add_job(refresh_odds_job, "interval", hours=3,
+                          args=[adapters], id="odds")
+        print("[планировщик] обновление коэффициентов включено")
 
     # Уведомления о матчах — раз в минуту. Работают только если есть бот,
     # главный цикл и база пользователей (иначе слать некому и нечем).

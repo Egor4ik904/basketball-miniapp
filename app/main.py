@@ -18,6 +18,7 @@ from app.db import (
     count_teams, save_teams, get_teams,
     get_team_ids, count_players, save_players,
     save_games, get_games, get_games_list, count_games, get_playoff_games,
+    get_odds_for_games,
     count_standings, save_standings, get_standings,
     save_player_stats, get_player_stats,
     save_boxscore, get_boxscore,
@@ -29,6 +30,7 @@ from app import season as season_mod
 from app import config
 from app import bot as tg_bot
 from app import userdata
+from app import odds as odds_mod
 from app.telegram_auth import verify_init_data
 from app.adapters import nba, euroleague, vtb
 from app.brackets import build_bracket
@@ -398,13 +400,35 @@ def get_roster(tid: str):
     return {"data": [dict(row) for row in rows]}
 
 
+def _attach_odds(games: list[dict]) -> list[dict]:
+    """Прикрепляет коэффициенты к матчам, у которых они есть. Матч без
+    коэффициентов остаётся как есть — никакого поля odds у него не появится,
+    чтобы интерфейс не показывал ничего про коэффициенты."""
+    if not games or not config.odds_enabled():
+        return games
+    import json
+    ids = [g["id"] for g in games if g.get("id")]
+    found = get_odds_for_games(ids)          # {game_id: json} только где есть
+    for g in games:
+        raw = found.get(g.get("id"))
+        if raw:
+            try:
+                g["odds"] = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return games
+
+
 @app.get("/api/leagues/{lid}/games/list")
 def get_games_list_endpoint(lid: str, mode: str = "results",
                             limit: int = 30, offset: int = 0):
     """Списки матчей: mode='results' — сыгранные (новые сверху),
     mode='schedule' — предстоящие (ближайшие сверху). Страницами по limit."""
     limit = max(1, min(limit, 100))          # защита от слишком больших запросов
-    return {"data": get_games_list(lid, mode, limit, offset)}
+    result = get_games_list(lid, mode, limit, offset)
+    if isinstance(result, dict) and "games" in result:
+        result["games"] = _attach_odds(result["games"])
+    return {"data": result}
 
 
 @app.get("/api/leagues/{lid}/games")

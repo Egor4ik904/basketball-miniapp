@@ -745,14 +745,56 @@ function buildGameCard(g, league, homeFirst) {
       <span class="game-score">${showScore ? esc(g.home_score) : ""}</span>
     </div>`;
 
+  // коэффициенты показываем ТОЛЬКО если они пришли; иначе ничего про них нет
+  const oddsBlock = g.odds ? buildOddsBlock(g.odds, homeFirst, g) : "";
+
   const card = document.createElement("div");
   card.className = "game-card" + (showScore ? " clickable" : "");
   card.innerHTML = `
     ${stageLine}
     <div class="game-status ${live ? "live" : ""}">${esc(statusText)}</div>
-    ${homeFirst ? homeRow + awayRow : awayRow + homeRow}`;
+    ${homeFirst ? homeRow + awayRow : awayRow + homeRow}
+    ${oddsBlock}`;
   if (showScore) card.addEventListener("click", () => showBoxScore(g, league, "games"));
   return card;
+}
+
+// Блок коэффициентов под матчем: исход, тотал, фора. Показываются только те
+// рынки, что реально есть в данных. Числа — это коэффициенты букмекера.
+function buildOddsBlock(odds, homeFirst, g) {
+  const m = (odds && odds.markets) || {};
+  const rows = [];
+
+  // исход (кто победит)
+  if (m.moneyline && (m.moneyline.home || m.moneyline.away)) {
+    const h = m.moneyline.home ? m.moneyline.home.toFixed(2) : "—";
+    const a = m.moneyline.away ? m.moneyline.away.toFixed(2) : "—";
+    const first = homeFirst ? h : a;
+    const second = homeFirst ? a : h;
+    rows.push(`<div class="odds-row"><span class="odds-label">Победа</span>
+      <span class="odds-vals"><b>${first}</b> · <b>${second}</b></span></div>`);
+  }
+  // тотал (больше/меньше)
+  if (m.total && (m.total.over || m.total.under)) {
+    const line = m.total.line != null ? m.total.line : "";
+    const o = m.total.over ? m.total.over.toFixed(2) : "—";
+    const u = m.total.under ? m.total.under.toFixed(2) : "—";
+    rows.push(`<div class="odds-row"><span class="odds-label">Тотал ${esc(String(line))}</span>
+      <span class="odds-vals">Б <b>${o}</b> · М <b>${u}</b></span></div>`);
+  }
+  // фора (гандикап)
+  if (m.handicap && (m.handicap.home || m.handicap.away)) {
+    const line = m.handicap.line != null ? m.handicap.line : "";
+    const h = m.handicap.home ? m.handicap.home.toFixed(2) : "—";
+    const a = m.handicap.away ? m.handicap.away.toFixed(2) : "—";
+    const first = homeFirst ? h : a;
+    const second = homeFirst ? a : h;
+    rows.push(`<div class="odds-row"><span class="odds-label">Фора ${esc(String(line))}</span>
+      <span class="odds-vals"><b>${first}</b> · <b>${second}</b></span></div>`);
+  }
+
+  if (!rows.length) return "";
+  return `<div class="odds-block">${rows.join("")}</div>`;
 }
 
 // ===== Вкладка «Новости» =====

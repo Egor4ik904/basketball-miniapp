@@ -97,6 +97,14 @@ def init_db() -> None:
     """)
 
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS odds (
+            game_id     TEXT PRIMARY KEY,
+            data        TEXT,
+            updated_at  TEXT
+        )
+    """)
+
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS standings (
             team_id    TEXT PRIMARY KEY,
             league_id  TEXT,
@@ -299,6 +307,41 @@ GAME_FIELDS = (
     "period", "clock",
     "stage", "stage_label", "series_key", "series_round", "round_label",
 )
+
+
+def save_odds(game_id: str, data_json: str) -> None:
+    """Сохраняет (или обновляет) коэффициенты матча."""
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO odds (game_id, data, updated_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(game_id) DO UPDATE SET
+            data = excluded.data, updated_at = excluded.updated_at
+    """, (game_id, data_json))
+    conn.commit()
+    conn.close()
+
+
+def get_odds(game_id: str) -> str | None:
+    """JSON коэффициентов матча или None, если их нет."""
+    conn = get_connection()
+    row = conn.execute("SELECT data FROM odds WHERE game_id = ?", (game_id,)).fetchone()
+    conn.close()
+    return row["data"] if row else None
+
+
+def get_odds_for_games(game_ids: list[str]) -> dict:
+    """Коэффициенты сразу для нескольких матчей: {game_id: json}. Матчи без
+    коэффициентов просто не попадают в результат."""
+    if not game_ids:
+        return {}
+    conn = get_connection()
+    marks = ",".join("?" * len(game_ids))
+    rows = conn.execute(
+        f"SELECT game_id, data FROM odds WHERE game_id IN ({marks})", game_ids
+    ).fetchall()
+    conn.close()
+    return {r["game_id"]: r["data"] for r in rows}
 
 
 def save_games(games: list[dict]) -> int:

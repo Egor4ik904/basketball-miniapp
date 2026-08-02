@@ -31,6 +31,10 @@ PUBLIC_URL = os.getenv("PUBLIC_URL", "").strip().rstrip("/")
 # приложение работает как прежде — удобно для локальной разработки.
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
+# Ключ Odds-API.io для коэффициентов (NBA и Евролига). Без него раздел
+# коэффициентов просто отключается — матчи показываются как прежде, без них.
+ODDS_API_KEY = os.getenv("ODDS_API_KEY", "").strip()
+
 
 def bot_enabled() -> bool:
     """Есть ли смысл запускать бота. Без токена — нет: локально приложение
@@ -42,6 +46,11 @@ def user_db_enabled() -> bool:
     """Доступна ли база пользовательских данных. Без неё раздел избранного
     отключается, остальное работает."""
     return bool(DATABASE_URL)
+
+
+def odds_enabled() -> bool:
+    """Включены ли коэффициенты. Без ключа — нет: матчи показываются без них."""
+    return bool(ODDS_API_KEY)
 
 
 def describe() -> str:
