@@ -340,7 +340,7 @@ async function showHome() {
       card.className = "league-card";
       card.innerHTML = `
         <div class="league-info">
-          <div class="league-name">${esc(league.name)}</div>
+          <div class="league-name">${esc(tLeague(league.name))}</div>
           <div class="league-season">${t("season")} ${esc(league.season_label)}</div>
         </div>`;
       card.addEventListener("click", () => { pushHistory(showHome); showLeague(league); });
@@ -383,7 +383,7 @@ function showLeague(league, activeTab = "standings") {
   root.innerHTML = `
     <header class="app-header">
       <button class="back" id="back">${t("back")}</button>
-      <h1>${esc(league.name)}</h1>
+      <h1>${esc(tLeague(league.name))}</h1>
     </header>
     <nav class="tabs">
       <button class="tab" data-tab="standings">${t("tab_standings")}</button>
@@ -399,7 +399,7 @@ function showLeague(league, activeTab = "standings") {
   tabs.forEach(tab => {
     if (tab.dataset.tab === activeTab) tab.classList.add("active");
     tab.addEventListener("click", () => {
-      tabs.forEach(t => t.classList.remove("active"));
+      tabs.forEach(tb => tb.classList.remove("active"));
       tab.classList.add("active");
       openTab(league, tab.dataset.tab);
     });
@@ -523,7 +523,7 @@ function renderBracket(rounds, league) {
   for (const round of rounds) {
     const title = document.createElement("h2");
     title.className = "section-title";
-    title.textContent = round.label;
+    title.textContent = tStage(round.label);
     box.appendChild(title);
 
     // Внутри круга серии делим по конференциям (у NBA — Восток / Запад).
@@ -775,7 +775,7 @@ function buildGameCard(g, league, homeFirst) {
 
   // У матчей плей-офф и предсезонки показываем стадию, у регулярки — тур.
   const stageLine = (g.stage && g.stage !== "regular" && g.round_label)
-    ? `<div class="game-stage">${esc(g.round_label)}</div>` : "";
+    ? `<div class="game-stage">${esc(tStage(g.round_label))}</div>` : "";
 
   const awayRow = `
     <div class="game-team">
@@ -968,8 +968,8 @@ function renderBoxScore(box, league) {
 
   // хозяев/гостей находим по пометке; порядок показа зависит от лиги
   // (ВТБ — хозяева сверху, NBA/Евролига — гости сверху)
-  const home = box.teams.find(t => t.home_away === "home") || box.teams[1];
-  const away = box.teams.find(t => t.home_away === "away") || box.teams[0];
+  const home = box.teams.find(tm => tm.home_away === "home") || box.teams[1];
+  const away = box.teams.find(tm => tm.home_away === "away") || box.teams[0];
   const homeFirst = league && league.id === "vtb";
   const ordered = homeFirst ? [home, away] : [away, home];
 
@@ -977,11 +977,11 @@ function renderBoxScore(box, league) {
   const qHeaders = [];
   for (let i = 0; i < numQ; i++) qHeaders.push(i < 4 ? String(i + 1) : t("box_from"));
 
-  const qRow = (t) => `
+  const qRow = (tm) => `
     <div class="ls-row">
-      <span class="ls-team"><img class="ls-logo" src="${safeUrl(t.logo)}" alt="">${esc(t.short_name)}</span>
-      ${t.quarters.map(q => `<span class="ls-q">${esc(q)}</span>`).join("")}
-      <span class="ls-total">${esc(t.score)}</span>
+      <span class="ls-team"><img class="ls-logo" src="${safeUrl(tm.logo)}" alt="">${esc(tm.short_name)}</span>
+      ${tm.quarters.map(q => `<span class="ls-q">${esc(q)}</span>`).join("")}
+      <span class="ls-total">${esc(tm.score)}</span>
     </div>`;
 
   el.innerHTML = `
@@ -1005,7 +1005,7 @@ function renderBoxScore(box, league) {
   tabs.forEach(tab => {
     tab.addEventListener("click", () => {
       boxActiveTeam = Number(tab.dataset.i);
-      tabs.forEach(t => t.classList.remove("active"));
+      tabs.forEach(tb => tb.classList.remove("active"));
       tab.classList.add("active");
       renderBoxTeam(ordered[boxActiveTeam]);
     });
@@ -1016,16 +1016,16 @@ function renderBoxScore(box, league) {
 
 function renderBoxTeam(team) {
   const box = document.getElementById("box-team");
-  const t = team.totals || {};
+  const tot = team.totals || {};
 
   const totals = `
     <div class="team-totals">
-      <div class="tt-item"><span class="tt-val">${esc(t.fg || "—")}</span><span class="tt-lbl">FG ${t.fg_pct ? esc(t.fg_pct) + "%" : ""}</span></div>
-      <div class="tt-item"><span class="tt-val">${esc(t.fg3 || "—")}</span><span class="tt-lbl">3PT ${t.fg3_pct ? esc(t.fg3_pct) + "%" : ""}</span></div>
-      <div class="tt-item"><span class="tt-val">${esc(t.ft || "—")}</span><span class="tt-lbl">FT ${t.ft_pct ? esc(t.ft_pct) + "%" : ""}</span></div>
-      <div class="tt-item"><span class="tt-val">${esc(t.reb || "—")}</span><span class="tt-lbl">${t("stat_rebounds")}</span></div>
-      <div class="tt-item"><span class="tt-val">${esc(t.ast || "—")}</span><span class="tt-lbl">${t("stat_assists")}</span></div>
-      <div class="tt-item"><span class="tt-val">${esc(t.to || "—")}</span><span class="tt-lbl">${t("stat_turnovers")}</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(tot.fg || "—")}</span><span class="tt-lbl">FG ${tot.fg_pct ? esc(tot.fg_pct) + "%" : ""}</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(tot.fg3 || "—")}</span><span class="tt-lbl">3PT ${tot.fg3_pct ? esc(tot.fg3_pct) + "%" : ""}</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(tot.ft || "—")}</span><span class="tt-lbl">FT ${tot.ft_pct ? esc(tot.ft_pct) + "%" : ""}</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(tot.reb || "—")}</span><span class="tt-lbl">${t("stat_rebounds")}</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(tot.ast || "—")}</span><span class="tt-lbl">${t("stat_assists")}</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(tot.to || "—")}</span><span class="tt-lbl">${t("stat_turnovers")}</span></div>
     </div>`;
 
   const head = `
@@ -1081,7 +1081,7 @@ async function showTeam(team, league) {
   pushHistory(() => showLeague(league, "teams"));
   root.innerHTML = `
     <header class="app-header">
-      <button class="back" id="back">‹ ${esc(league.name)}</button>
+      <button class="back" id="back">‹ ${esc(tLeague(league.name))}</button>
       <div class="team-head"><img class="team-head-logo" src="${safeUrl(team.logo_url)}" alt=""><h1>${esc(team.name)}</h1></div>
     </header>
     <main class="container"><div id="roster" class="muted">${t("loading")}</div></main>
@@ -1328,7 +1328,7 @@ async function renderFavLeagues(items, box) {
     const league = leagues[fav.entity_id] || { id: fav.entity_id, name: fav.entity_id };
     const row = document.createElement("div");
     row.className = "fav-row";
-    row.innerHTML = `<div class="fav-main"><div class="fav-name">${esc(league.name)}</div>
+    row.innerHTML = `<div class="fav-main"><div class="fav-name">${esc(tLeague(league.name))}</div>
       <div class="fav-sub">${t("league_notify_hint")}</div></div>`;
     row.addEventListener("click", () => { pushHistory(showFavorites); showLeague(league); });
     row.appendChild(makeRemoveButton("league", fav.entity_id));
@@ -1353,7 +1353,7 @@ async function renderFavTeams(items, box) {
       <img class="fav-logo" src="${safeUrl(team.logo_url)}" alt="">
       <div class="fav-main">
         <div class="fav-name">${esc(team.name)}</div>
-        <div class="fav-sub">${esc(league ? league.name : "")}</div>
+        <div class="fav-sub">${esc(league ? tLeague(league.name) : "")}</div>
       </div>`;
     head.appendChild(makeRemoveButton("team", fav.entity_id));
     row.appendChild(head);
@@ -1405,7 +1405,7 @@ async function renderFavPlayers(items, box) {
     row.innerHTML = `${avatar}
       <div class="fav-main">
         <div class="fav-name">${esc(name)}</div>
-        <div class="fav-sub">${esc(league ? league.name : "")} · ${t("player_stats_after")}</div>
+        <div class="fav-sub">${esc(league ? tLeague(league.name) : "")} · ${t("player_stats_after")}</div>
       </div>`;
 
     // Открываем карточку игрока. Команда игрока нам тут неизвестна (мы её не

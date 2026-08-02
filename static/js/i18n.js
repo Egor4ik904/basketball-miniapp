@@ -268,3 +268,65 @@ function t(key) {
   if (key in TRANSLATIONS.ru) return TRANSLATIONS.ru[key];
   return key;
 }
+
+// ===== Перевод СЕРВЕРНЫХ данных (стадии плей-офф, названия лиг) =====
+// Эти строки приходят с сервера на русском (round_label лиги, названия лиг).
+// На клиенте сопоставляем их с переводом. Неизвестную строку возвращаем как
+// есть — лучше показать по-русски, чем пусто.
+
+const STAGE_TRANSLATIONS = {
+  en: {
+    "Регулярный чемпионат": "Regular season",
+    "Предсезонные матчи": "Preseason",
+    "Плей-ин": "Play-In",
+    "1/4 финала": "Quarterfinals",
+    "1/2 финала": "Semifinals",
+    "Полуфинал": "Semifinals",
+    "Полуфинал конференции": "Conference Semifinals",
+    "Финал": "Finals",
+    "Финал четырёх": "Final Four",
+    "Финал за 3 место": "3rd place game",
+    "Матч за 3-е место": "3rd place game",
+    "1-й раунд": "1st round",
+    "Тур": "Round",              // для «Тур 5» -> «Round 5»
+  },
+};
+
+const LEAGUE_TRANSLATIONS = {
+  en: {
+    "NBA": "NBA",
+    "Евролига": "Euroleague",
+    "Единая лига ВТБ": "VTB United League",
+  },
+};
+
+// Переводит метку стадии/тура с сервера. Обрабатывает «Тур N» и «... (N)».
+function tStage(label) {
+  if (!label) return label;
+  if (currentLang === "ru") return label;
+  const dict = STAGE_TRANSLATIONS[currentLang];
+  if (!dict) return label;
+
+  // прямое совпадение
+  if (label in dict) return dict[label];
+
+  // «Тур 5» -> «Round 5»
+  const tourMatch = label.match(/^Тур\s+(\d+)$/);
+  if (tourMatch) return `${dict["Тур"] || "Тур"} ${tourMatch[1]}`;
+
+  // «1/4 финала (2)» -> «Quarterfinals (2)» — переводим базовую часть
+  const parenMatch = label.match(/^(.+?)\s*\((\d+)\)$/);
+  if (parenMatch && parenMatch[1] in dict) {
+    return `${dict[parenMatch[1]]} (${parenMatch[2]})`;
+  }
+
+  return label;   // неизвестное — как есть
+}
+
+// Переводит название лиги с сервера.
+function tLeague(name) {
+  if (!name) return name;
+  if (currentLang === "ru") return name;
+  const dict = LEAGUE_TRANSLATIONS[currentLang];
+  return (dict && dict[name]) || name;
+}
