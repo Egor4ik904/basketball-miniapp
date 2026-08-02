@@ -105,6 +105,25 @@ const TRANSLATIONS = {
     // сезон
     season: "Сезон",
 
+    // подвкладки и колонки, добавленные во втором проходе
+    subtab_regular: "Регулярный чемпионат",
+    subtab_playoff: "Плей-офф",
+    subtab_results: "Результаты",
+    subtab_schedule: "Календарь",
+    box_team: "Команда",
+    match_word: "Матч",
+    // короткие заголовки колонок статистики (боксскор/таблица)
+    col_min: "МИН",
+    col_pts: "ОЧ",
+    col_reb: "ПД",
+    col_ast: "ПАС",
+    col_stl: "ПХ",
+    col_blk: "БЛ",
+    col_to: "П",
+    col_games: "И",
+    col_wins: "В",
+    col_pts_short: "ПТ",
+
     months: ["января","февраля","марта","апреля","мая","июня",
              "июля","августа","сентября","октября","ноября","декабря"],
     weekdays: ["воскресенье","понедельник","вторник","среда","четверг","пятница","суббота"],
@@ -196,6 +215,23 @@ const TRANSLATIONS = {
     err_favorites: "Couldn't load favorites 😕",
 
     season: "Season",
+
+    subtab_regular: "Regular season",
+    subtab_playoff: "Playoffs",
+    subtab_results: "Results",
+    subtab_schedule: "Schedule",
+    box_team: "Team",
+    match_word: "Game",
+    col_min: "MIN",
+    col_pts: "PTS",
+    col_reb: "REB",
+    col_ast: "AST",
+    col_stl: "STL",
+    col_blk: "BLK",
+    col_to: "TO",
+    col_games: "G",
+    col_wins: "W",
+    col_pts_short: "PTS",
 
     months: ["January","February","March","April","May","June",
              "July","August","September","October","November","December"],

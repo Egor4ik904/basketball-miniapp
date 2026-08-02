@@ -382,14 +382,14 @@ async function showHome() {
 function showLeague(league, activeTab = "standings") {
   root.innerHTML = `
     <header class="app-header">
-      <button class="back" id="back">‹ Назад</button>
+      <button class="back" id="back">${t("back")}</button>
       <h1>${esc(league.name)}</h1>
     </header>
     <nav class="tabs">
-      <button class="tab" data-tab="standings">Таблица</button>
-      <button class="tab" data-tab="games">Матчи</button>
-      <button class="tab" data-tab="news">Новости</button>
-      <button class="tab" data-tab="teams">Команды</button>
+      <button class="tab" data-tab="standings">${t("tab_standings")}</button>
+      <button class="tab" data-tab="games">${t("tab_games")}</button>
+      <button class="tab" data-tab="news">${t("tab_news")}</button>
+      <button class="tab" data-tab="teams">${t("tab_teams")}</button>
     </nav>
     <main class="container"><div id="tab-content" class="muted">${t("loading")}</div></main>
   `;
@@ -429,8 +429,8 @@ function showStandingsTab(league) {
   content.className = "";
   content.innerHTML = `
     <div class="subtabs">
-      <button class="subtab" data-sub="table">Регулярный чемпионат</button>
-      <button class="subtab" data-sub="bracket">Плей-офф</button>
+      <button class="subtab" data-sub="table">${t("subtab_regular")}</button>
+      <button class="subtab" data-sub="bracket">${t("subtab_playoff")}</button>
     </div>
     <div id="sub-content" class="muted">${t("loading")}</div>
   `;
@@ -492,8 +492,8 @@ function renderStandings(standings) {
     table.className = "standings";
     table.innerHTML = `
       <div class="st-row st-head">
-        <span class="st-rank">#</span><span class="st-team">Команда</span>
-        <span class="st-num">В</span><span class="st-num">П</span>
+        <span class="st-rank">#</span><span class="st-team">${t("box_team")}</span>
+        <span class="st-num">${t("col_wins")}</span><span class="st-num">${t("col_to")}</span>
       </div>`;
     for (const row of byConf[conf]) {
       const r = document.createElement("div");
@@ -577,7 +577,7 @@ function buildSeriesCard(series, league) {
     </div>
     <div class="series-foot">
       <span class="series-note">${esc(note)}</span>
-      <span class="series-toggle">Матчи ▾</span>
+      <span class="series-toggle">${t("games_expand")}</span>
     </div>
     <div class="series-games hidden"></div>
   `;
@@ -599,7 +599,7 @@ function buildSeriesCard(series, league) {
         const row = document.createElement("div");
         row.className = "series-game" + (finished ? " clickable" : "");
         row.innerHTML = `
-          <span class="sg-num">Матч ${i + 1}</span>
+          <span class="sg-num">${t("match_word")} ${i + 1}</span>
           <span class="sg-date">${esc(formatShortDate(game.date))}</span>
           <span class="sg-score">${esc(score)}</span>`;
         if (finished) {
@@ -620,9 +620,9 @@ function showGames(league) {
   content.className = "";
   content.innerHTML = `
     <div class="subtabs">
-      <button class="subtab" data-sub="results">Результаты</button>
-      <button class="subtab" data-sub="schedule">Календарь</button>
-      <button class="subtab subtab-narrow" data-sub="date" title=t("pick_date")>📅</button>
+      <button class="subtab" data-sub="results">${t("subtab_results")}</button>
+      <button class="subtab" data-sub="schedule">${t("subtab_schedule")}</button>
+      <button class="subtab subtab-narrow" data-sub="date" title="${t('pick_date')}">📅</button>
     </div>
     <div id="date-bar" class="date-bar hidden">
       <button class="date-nav" id="prev-day">‹</button>
@@ -816,7 +816,7 @@ function buildOddsBlock(odds, homeFirst, g) {
     const a = m.moneyline.away ? m.moneyline.away.toFixed(2) : "—";
     const first = homeFirst ? h : a;
     const second = homeFirst ? a : h;
-    rows.push(`<div class="odds-row"><span class="odds-label">Победа</span>
+    rows.push(`<div class="odds-row"><span class="odds-label">${t("odds_win")}</span>
       <span class="odds-vals"><b>${first}</b> · <b>${second}</b></span></div>`);
   }
   // тотал (больше/меньше)
@@ -824,8 +824,8 @@ function buildOddsBlock(odds, homeFirst, g) {
     const line = m.total.line != null ? m.total.line : "";
     const o = m.total.over ? m.total.over.toFixed(2) : "—";
     const u = m.total.under ? m.total.under.toFixed(2) : "—";
-    rows.push(`<div class="odds-row"><span class="odds-label">Тотал ${esc(String(line))}</span>
-      <span class="odds-vals">Б <b>${o}</b> · М <b>${u}</b></span></div>`);
+    rows.push(`<div class="odds-row"><span class="odds-label">${t("odds_total")} ${esc(String(line))}</span>
+      <span class="odds-vals">${t("odds_over")} <b>${o}</b> · ${t("odds_under")} <b>${u}</b></span></div>`);
   }
   // фора (гандикап)
   if (m.handicap && (m.handicap.home || m.handicap.away)) {
@@ -834,7 +834,7 @@ function buildOddsBlock(odds, homeFirst, g) {
     const a = m.handicap.away ? m.handicap.away.toFixed(2) : "—";
     const first = homeFirst ? h : a;
     const second = homeFirst ? a : h;
-    rows.push(`<div class="odds-row"><span class="odds-label">Фора ${esc(String(line))}</span>
+    rows.push(`<div class="odds-row"><span class="odds-label">${t("odds_handicap")} ${esc(String(line))}</span>
       <span class="odds-vals"><b>${first}</b> · <b>${second}</b></span></div>`);
   }
 
@@ -989,7 +989,7 @@ function renderBoxScore(box, league) {
       <div class="ls-row ls-head">
         <span class="ls-team"></span>
         ${qHeaders.map(h => `<span class="ls-q">${esc(h)}</span>`).join("")}
-        <span class="ls-total">И</span>
+        <span class="ls-total">${t("col_games")}</span>
       </div>
       ${qRow(ordered[0])}
       ${qRow(ordered[1])}
@@ -1023,16 +1023,16 @@ function renderBoxTeam(team) {
       <div class="tt-item"><span class="tt-val">${esc(t.fg || "—")}</span><span class="tt-lbl">FG ${t.fg_pct ? esc(t.fg_pct) + "%" : ""}</span></div>
       <div class="tt-item"><span class="tt-val">${esc(t.fg3 || "—")}</span><span class="tt-lbl">3PT ${t.fg3_pct ? esc(t.fg3_pct) + "%" : ""}</span></div>
       <div class="tt-item"><span class="tt-val">${esc(t.ft || "—")}</span><span class="tt-lbl">FT ${t.ft_pct ? esc(t.ft_pct) + "%" : ""}</span></div>
-      <div class="tt-item"><span class="tt-val">${esc(t.reb || "—")}</span><span class="tt-lbl">Подборы</span></div>
-      <div class="tt-item"><span class="tt-val">${esc(t.ast || "—")}</span><span class="tt-lbl">Передачи</span></div>
-      <div class="tt-item"><span class="tt-val">${esc(t.to || "—")}</span><span class="tt-lbl">Потери</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(t.reb || "—")}</span><span class="tt-lbl">${t("stat_rebounds")}</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(t.ast || "—")}</span><span class="tt-lbl">${t("stat_assists")}</span></div>
+      <div class="tt-item"><span class="tt-val">${esc(t.to || "—")}</span><span class="tt-lbl">${t("stat_turnovers")}</span></div>
     </div>`;
 
   const head = `
     <div class="bs-row bs-head">
-      <span class="bs-name">Игрок</span>
-      <span>МИН</span><span>ОЧ</span><span>ПД</span><span>ПАС</span>
-      <span>ПХ</span><span>БЛ</span><span>ПТ</span>
+      <span class="bs-name">${t("fav_players")}</span>
+      <span>${t("col_min")}</span><span>${t("col_pts")}</span><span>${t("col_reb")}</span><span>${t("col_ast")}</span>
+      <span>${t("col_stl")}</span><span>${t("col_blk")}</span><span>${t("col_to")}</span>
       <span class="bs-wide">FG</span><span class="bs-wide">3PT</span><span class="bs-wide">FT</span><span>+/-</span>
     </div>`;
 
@@ -1329,7 +1329,7 @@ async function renderFavLeagues(items, box) {
     const row = document.createElement("div");
     row.className = "fav-row";
     row.innerHTML = `<div class="fav-main"><div class="fav-name">${esc(league.name)}</div>
-      <div class="fav-sub">Уведомления за 15 минут до матчей лиги</div></div>`;
+      <div class="fav-sub">${t("league_notify_hint")}</div></div>`;
     row.addEventListener("click", () => { pushHistory(showFavorites); showLeague(league); });
     row.appendChild(makeRemoveButton("league", fav.entity_id));
     box.appendChild(row);
