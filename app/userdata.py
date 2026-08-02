@@ -41,11 +41,22 @@ def init_pool() -> None:
         return
 
     try:
+        from psycopg_pool import ConnectionPool as _CP
         _pool = ConnectionPool(
             conninfo=config.DATABASE_URL,
             min_size=1,
             max_size=5,          # с запасом под бесплатный тариф
             timeout=15,
+            # Neon на бесплатном тарифе засыпает при простое и закрывает
+            # соединения со своей стороны. Без этих настроек пул хранил бы
+            # «мёртвое» соединение и падал с AdminShutdown при следующем
+            # запросе. check проверяет соединение ПЕРЕД выдачей и пересоздаёт
+            # неживое; max_idle закрывает простаивающие раньше, чем их убьёт
+            # Neon; попытки переподключения смягчают краткие обрывы.
+            check=_CP.check_connection,
+            max_idle=60,
+            max_lifetime=300,
+            reconnect_timeout=30,
             kwargs={"autocommit": True},
         )
         _pool.wait(timeout=15)
