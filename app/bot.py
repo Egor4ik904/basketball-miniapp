@@ -46,12 +46,19 @@ if config.bot_enabled():
     async def on_start(message: Message) -> None:
         name = message.from_user.first_name or "друг"
         await message.answer(
-            f"Привет, {name}! 👋\n\n"
-            "Это Баскетбольный центр — NBA, Евролига и Единая лига ВТБ "
-            "в одном месте: таблицы, плей-офф, результаты, составы, "
-            "статистика и новости.\n\n"
-            "Нажми кнопку ниже, чтобы открыть 👇",
+            f"Привет, {name}! 🏀\n\n"
+            "<b>Баскетбольный центр</b> — три главные лиги в одном приложении:\n"
+            "🇺🇸 NBA   🇪🇺 Евролига   🇷🇺 Единая лига ВТБ\n\n"
+            "Здесь есть всё, чтобы следить за баскетболом:\n"
+            "• турнирные таблицы и сетки плей-офф\n"
+            "• результаты матчей и расписание\n"
+            "• составы команд и статистика игроков\n"
+            "• подробные протоколы матчей\n"
+            "• свежие новости лиг\n"
+            "• избранное и уведомления о матчах\n\n"
+            "Доступно на 6 языках. Жми кнопку и погнали 👇",
             reply_markup=_app_keyboard(),
+            parse_mode="HTML",
         )
 
 
@@ -68,8 +75,10 @@ async def setup_webhook() -> None:
     await bot.set_webhook(
         url=url,
         secret_token=config.WEBHOOK_SECRET or None,
-        drop_pending_updates=True,
-        allowed_updates=["message"],
+        # drop_pending_updates НЕ ставим: иначе сообщения, пришедшие пока
+        # сервер на бесплатном хостинге просыпался, терялись бы — и /start
+        # не доходил. Пусть Telegram досылает их после пробуждения.
+        drop_pending_updates=False,
     )
     print(f"[бот] вебхук зарегистрирован: {url}")
 
