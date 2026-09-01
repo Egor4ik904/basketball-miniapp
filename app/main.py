@@ -88,9 +88,9 @@ def _warmup_fast_one(lid, adapter) -> None:
     """Быстрая загрузка ОДНОЙ лиги: команды, таблица, матчи, новости.
     Вынесено отдельно, чтобы гонять лиги параллельно (см. warmup_fast)."""
     try:
-        if hasattr(adapter, "fetch_teams") and count_teams(lid) == 0:
+        if hasattr(adapter, "fetch_teams"):
             n = save_teams(adapter.fetch_teams())
-            print(f"[старт] {lid}: загружено команд {n}")
+            print(f"[старт] {lid}: команды обновлены — {n}")
     except Exception as e:
         print(f"[старт] {lid}: команды не загружены: {e}")
 

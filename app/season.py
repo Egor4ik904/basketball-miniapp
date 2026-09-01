@@ -73,10 +73,24 @@ def _el_seasons() -> list:
 
 
 def _el_has_games(season_code: str) -> bool:
-    """Опубликовано ли расписание сезона. Новый сезон заводится заранее
-    (E2026 существует с 1 июля), но матчей в нём ещё нет — по этому и отличаем."""
+    """Есть ли у сезона СЫГРАННЫЕ матчи (результаты). Отличает уже идущий/
+    прошедший сезон от только заведённого."""
     r = client.get(f"{EL_API}/v1/results", params={"seasonCode": season_code})
     return r.status_code == 200 and b"<game" in r.content
+
+
+def _el_has_schedule(season_code: str) -> bool:
+    """Опубликовано ли РАСПИСАНИЕ сезона (будущие матчи), даже если ни один
+    ещё не сыгран. Нужно, чтобы переключиться на новый сезон под его старт."""
+    try:
+        r = client.get(f"{EL_API}/v2/competitions/{EL_COMP}/seasons/{season_code}/games")
+        if r.status_code != 200:
+            return False
+        data = r.json()
+        games = data.get("data") if isinstance(data, dict) else data
+        return bool(games)
+    except Exception:
+        return False
 
 
 def _el_clubs(season_code: str) -> list:
@@ -135,15 +149,34 @@ def euroleague() -> dict:
     now = datetime.now()
     seasons = _el_seasons()
 
-    # Сезон с данными: самый новый из начавшихся, где есть матчи.
+    # За сколько дней до старта нового сезона на него переключаемся.
+    # Пока не подошло это окно, показываем прошлый (с полной таблицей),
+    # а к самому старту — уже новый (с расписанием), даже если матчи ещё
+    # не сыграны. Так у пользователя всегда осмысленные данные.
+    SWITCH_DAYS = 3
+
     data_season = None
-    for s in seasons:
-        start = _parse_date(s.get("startDate"))
-        if start and start > now:
-            continue                       # ещё не открыт
-        if _el_has_games(s.get("code")):
-            data_season = s
+    for cand in seasons:
+        start = _parse_date(cand.get("startDate"))
+        # 1) сезон уже идёт/прошёл и есть сыгранные матчи — это точно он
+        if (start is None or start <= now) and _el_has_games(cand.get("code")):
+            data_season = cand
             break
+        # 2) сезон уже стартовал (или стартует в пределах окна) и расписание
+        #    готово — берём его, даже если сыгранных матчей ещё нет. Так под
+        #    старт и в первые дни показываем новый сезон, а не откатываемся.
+        if start and _el_has_schedule(cand.get("code")):
+            days_to_start = (start - now).days
+            if start <= now or days_to_start <= SWITCH_DAYS:
+                data_season = cand
+                break
+    if data_season is None:
+        # никто не подошёл под условия — берём последний сезон с сыгранными
+        # матчами (прошлый), чтобы таблица была не пустой
+        for cand in seasons:
+            if _el_has_games(cand.get("code")):
+                data_season = cand
+                break
     if data_season is None:
         data_season = seasons[0] if seasons else {"code": "E2025", "alias": "2025-26"}
 
