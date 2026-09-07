@@ -555,18 +555,23 @@ def get_seasons_endpoint(lid: str):
 
 @app.get("/api/leagues/{lid}/standings/{season}")
 def get_standings_season_endpoint(lid: str, season: str):
-    """Таблица за КОНКРЕТНЫЙ сезон (для выбора сезона). Тянется из источника
-    с кешированием в адаптере."""
+    """Таблица за КОНКРЕТНЫЙ сезон (для выбора сезона). Тянется из источника.
+    Если сезон ещё не начался (данных/туров нет) — отдаём нулевую таблицу из
+    команд, а не ошибку и не пустоту."""
     check_entity_id(lid)
     if not SEASON_CODE_RE.match(season or ""):
         raise HTTPException(status_code=400, detail="Некорректный сезон")
     adapter = adapter_for(lid)
+    rows = []
     if adapter and hasattr(adapter, "fetch_standings_for"):
         try:
-            return {"data": adapter.fetch_standings_for(season)}
+            rows = adapter.fetch_standings_for(season)
         except Exception as e:
-            print(f"[standings] {lid}/{season}: не получить: {e}")
-    return {"data": []}
+            print(f"[standings] {lid}/{season}: не получить ({e}) — отдаю нули")
+            rows = []
+    if not rows:
+        rows = _zero_standings(lid)      # сезон не начался — команды с нулями
+    return {"data": rows}
 
 
 @app.get("/api/players/{pid}/stats")
