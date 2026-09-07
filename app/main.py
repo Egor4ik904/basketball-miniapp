@@ -32,7 +32,7 @@ from app import bot as tg_bot
 from app import userdata
 from app import odds as odds_mod
 from app.telegram_auth import verify_init_data
-from app.adapters import nba, euroleague, vtb, vtbcup
+from app.adapters import nba, euroleague, vtb, vtbcup, nbacup
 from app.brackets import build_bracket
 from app.scheduler import start_scheduler
 
@@ -46,6 +46,7 @@ ADAPTERS = {
     "vtb": vtb,
     "vtbcup": vtbcup,      # Winline Basket Cup — под-турнир ВТБ (не плитка на
                           # главном; показывается вкладкой внутри ВТБ)
+    "nbacup": nbacup,      # NBA Cup — под-турнир NBA (вкладка внутри NBA)
 }
 
 # Под-турниры: лиги, которые НЕ показываются плиткой на главном экране, а
@@ -53,6 +54,7 @@ ADAPTERS = {
 # значение — родитель.
 SUBTOURNAMENTS = {
     "vtbcup": "vtb",
+    "nbacup": "nba",
 }
 
 

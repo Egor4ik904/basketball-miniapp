@@ -1,22 +1,16 @@
-# Смотрим CompNameRu и GameNumber у матчей кубка — понять, как размечать стадии.
+# Быстрая сверка ESPN ID команд NBA — чтобы правильно сопоставить группы кубка.
 import io, sys, httpx
 if hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-client = httpx.Client(headers={"Accept":"application/json","User-Agent":"Mozilla/5.0"}, timeout=20, trust_env=False)
+client = httpx.Client(headers={"User-Agent":"Mozilla/5.0"}, timeout=20, trust_env=False)
 
-r = client.get("https://org.infobasket.su/Widget/Calendar/52553", params={"format":"json"})
-games = r.json()
-print(f"матчей: {len(games)}\n")
-# группируем по CompNameRu
-from collections import Counter
-comps = Counter()
-examples = {}
-for g in games:
-    cn = g.get("CompNameRu") or "(пусто)"
-    comps[cn] += 1
-    if cn not in examples:
-        examples[cn] = f"{g.get('GameNumber')}: {g.get('ShortTeamNameAru')} {g.get('ScoreA')}:{g.get('ScoreB')} {g.get('ShortTeamNameBru')}"
-
-print("Стадии (CompNameRu) и число матчей:")
-for cn, cnt in comps.most_common():
-    print(f"  '{cn}': {cnt} матчей | пример: {examples[cn]}")
+r = client.get("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams")
+teams = r.json()["sports"][0]["leagues"][0]["teams"]
+print("ESPN ID -> команда:")
+pairs = []
+for item in teams:
+    t = item["team"]
+    pairs.append((int(t["id"]), t["displayName"], t.get("abbreviation")))
+for tid, name, abbr in sorted(pairs):
+    print(f"  {tid}: {name} ({abbr})")
+print(f"\nвсего команд: {len(pairs)}")

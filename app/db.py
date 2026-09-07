@@ -182,6 +182,7 @@ def init_db() -> None:
     # и доступны как вкладка внутри родительской лиги.
     subtournaments = [
         ("vtbcup", "Winline Basket Cup", "2025/26", 30),
+        ("nbacup", "NBA Cup", "2026/27", 31),
     ]
     cur.executemany("""
         INSERT OR IGNORE INTO leagues (id, name, season_label, sort_order, is_active)
