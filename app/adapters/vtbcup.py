@@ -140,7 +140,7 @@ def fetch_season_games() -> list[dict]:
         score_a, score_b = g.get("ScoreA"), g.get("ScoreB")
         played = bool(score_a or score_b)
         time_ = g.get("GameTime") or "00:00"
-        stage = stages.vtb(g.get("CompNameRu"))
+        stage = stages.vtbcup(g.get("CompNameRu"), g.get("GameID"))
         games.append({
             "id": f"vtbcup:{g.get('GameID')}",
             "league_id": "vtbcup",

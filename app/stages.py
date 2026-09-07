@@ -106,6 +106,39 @@ def vtb(comp_name):
     return _result(PLAYOFF, name, series_key=name, series_round=None)
 
 
+def vtbcup(comp_name, game_id=None):
+    """Стадии Winline Basket Cup. Формат: групповой этап (две группы) +
+    финал четырёх (полуфиналы, финал, матч за 3-е место) — ВСЁ одиночные
+    матчи, не серии.
+
+    Отличия от чемпионата ВТБ:
+    - «Группа А/Б» → групповой этan (REGULAR), идёт в таблицы групп, а не в
+      плей-офф;
+    - матчи финала четырёх — одиночные, поэтому series_key делаем уникальным
+      для каждого матча (иначе фронт склеит их в «серию» со счётом 1-0).
+    """
+    name = (comp_name or "").strip()
+    low = name.lower()
+
+    # групповой этап — в таблицу, помечаем группу как round_label
+    if "групп" in low:
+        return _result(REGULAR, name)
+
+    # финал четырёх — одиночные матчи. Уникальный series_key на матч, чтобы
+    # не собирались в серию. game_id гарантирует уникальность.
+    uniq = f"{name}#{game_id}" if game_id is not None else name
+
+    if "3 место" in low or "за 3" in low:
+        return _result(PLAYOFF, "Матч за 3-е место", series_key=uniq, series_round=3)
+    if "1/2" in low or "полуфинал" in low:
+        return _result(PLAYOFF, "1/2 финала", series_key=uniq, series_round=2)
+    if "финал" in low:
+        return _result(PLAYOFF, "Финал", series_key=uniq, series_round=4)
+
+    # незнакомое — плей-офф, одиночный матч
+    return _result(PLAYOFF, name or "Плей-офф", series_key=uniq, series_round=None)
+
+
 # ============================================================
 # NBA
 # ============================================================

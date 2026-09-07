@@ -600,14 +600,23 @@ function buildSeriesCard(series, league) {
   const card = document.createElement("div");
   card.className = "series-card";
 
-  const teamRow = (team) => {
+  // Одиночный матч (турнир с играми на вылет, а не серией до N побед):
+  // показываем реальный счёт матча вместо числа побед в серии.
+  const singleGame = (series.games && series.games.length === 1) ? series.games[0] : null;
+
+  const teamRow = (team, isTeamA) => {
     const isWinner = series.winner_id && series.winner_id === team.id;
+    let scoreVal = team.wins;
+    if (singleGame) {
+      // score_a относится к team_a, score_b — к team_b (нормализовано на бэке)
+      scoreVal = isTeamA ? singleGame.score_a : singleGame.score_b;
+    }
     return `
       <div class="series-team${isWinner ? " winner" : ""}">
         <span class="series-seed">${esc(team.seed)}</span>
         <img class="series-logo" src="${safeUrl(team.logo_url)}" alt="">
         <span class="series-name">${esc(team.short_name || team.name)}</span>
-        <span class="series-wins">${esc(team.wins)}</span>
+        <span class="series-wins">${esc(scoreVal)}</span>
       </div>`;
   };
 
@@ -618,8 +627,8 @@ function buildSeriesCard(series, league) {
 
   card.innerHTML = `
     <div class="series-teams">
-      ${teamRow(series.team_a)}
-      ${teamRow(series.team_b)}
+      ${teamRow(series.team_a, true)}
+      ${teamRow(series.team_b, false)}
     </div>
     <div class="series-foot">
       <span class="series-note">${esc(note)}</span>
