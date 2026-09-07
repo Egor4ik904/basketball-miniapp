@@ -407,3 +407,28 @@ body {
   padding: 2px 4px;
 }
 .lang-item.active .lang-flag { color: var(--accent); border-color: var(--accent); }
+
+/* ===== Переключатель под-турниров (Чемпионат / Кубок) ===== */
+.subtournament-switch {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px 0;
+  flex-wrap: wrap;
+}
+.sub-switch-btn {
+  flex: 1;
+  min-width: 120px;
+  padding: 8px 12px;
+  background: var(--card);
+  border: 1px solid #2a2f3a;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sub-switch-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}

@@ -665,6 +665,7 @@ const STAGE_TRANSLATIONS = {
     "Полуфинал": "Semifinals", "Полуфинал конференции": "Conference Semifinals",
     "Финал": "Finals", "Финал четырёх": "Final Four", "Финал за 3 место": "3rd place game",
     "Матч за 3-е место": "3rd place game", "1-й раунд": "1st round", "Тур": "Round",
+    "Группа A": "Group A", "Группа B": "Group B",
   },
   de: {
     "Регулярный чемпионат": "Hauptrunde", "Предсезонные матчи": "Vorsaison",
@@ -672,6 +673,7 @@ const STAGE_TRANSLATIONS = {
     "Полуфинал": "Halbfinale", "Полуфинал конференции": "Conference-Halbfinale",
     "Финал": "Finale", "Финал четырёх": "Final Four", "Финал за 3 место": "Spiel um Platz 3",
     "Матч за 3-е место": "Spiel um Platz 3", "1-й раунд": "1. Runde", "Тур": "Runde",
+    "Группа A": "Gruppe A", "Группа B": "Gruppe B",
   },
   es: {
     "Регулярный чемпионат": "Temporada regular", "Предсезонные матчи": "Pretemporada",
@@ -679,6 +681,7 @@ const STAGE_TRANSLATIONS = {
     "Полуфинал": "Semifinales", "Полуфинал конференции": "Semifinales de conferencia",
     "Финал": "Final", "Финал четырёх": "Final Four", "Финал за 3 место": "Partido por el 3.º puesto",
     "Матч за 3-е место": "Partido por el 3.º puesto", "1-й раунд": "1.ª ronda", "Тур": "Jornada",
+    "Группа A": "Grupo A", "Группа B": "Grupo B",
   },
   it: {
     "Регулярный чемпионат": "Stagione regolare", "Предсезонные матчи": "Pre-stagione",
@@ -686,6 +689,7 @@ const STAGE_TRANSLATIONS = {
     "Полуфинал": "Semifinali", "Полуфинал конференции": "Semifinali di conference",
     "Финал": "Finale", "Финал четырёх": "Final Four", "Финал за 3 место": "Finale 3º posto",
     "Матч за 3-е место": "Finale 3º posto", "1-й раунд": "1º turno", "Тур": "Giornata",
+    "Группа A": "Girone A", "Группа B": "Girone B",
   },
   tr: {
     "Регулярный чемпионат": "Normal sezon", "Предсезонные матчи": "Sezon öncesi",
@@ -693,15 +697,16 @@ const STAGE_TRANSLATIONS = {
     "Полуфинал": "Yarı final", "Полуфинал конференции": "Konferans yarı finali",
     "Финал": "Final", "Финал четырёх": "Dörtlü Final", "Финал за 3 место": "3.'lük maçı",
     "Матч за 3-е место": "3.'lük maçı", "1-й раунд": "1. tur", "Тур": "Hafta",
+    "Группа A": "A Grubu", "Группа B": "B Grubu",
   },
 };
 
 const LEAGUE_TRANSLATIONS = {
-  en: { "NBA": "NBA", "Евролига": "Euroleague", "Единая лига ВТБ": "VTB United League" },
-  de: { "NBA": "NBA", "Евролига": "EuroLeague", "Единая лига ВТБ": "VTB United League" },
-  es: { "NBA": "NBA", "Евролига": "Euroliga", "Единая лига ВТБ": "Liga Unida VTB" },
-  it: { "NBA": "NBA", "Евролига": "Eurolega", "Единая лига ВТБ": "VTB United League" },
-  tr: { "NBA": "NBA", "Евролига": "EuroLeague", "Единая лига ВТБ": "VTB Birleşik Ligi" },
+  en: { "NBA": "NBA", "Евролига": "Euroleague", "Единая лига ВТБ": "VTB United League", "Winline Basket Cup": "Winline Basket Cup" },
+  de: { "NBA": "NBA", "Евролига": "EuroLeague", "Единая лига ВТБ": "VTB United League", "Winline Basket Cup": "Winline Basket Cup" },
+  es: { "NBA": "NBA", "Евролига": "Euroliga", "Единая лига ВТБ": "Liga Unida VTB", "Winline Basket Cup": "Winline Basket Cup" },
+  it: { "NBA": "NBA", "Евролига": "Eurolega", "Единая лига ВТБ": "VTB United League", "Winline Basket Cup": "Winline Basket Cup" },
+  tr: { "NBA": "NBA", "Евролига": "EuroLeague", "Единая лига ВТБ": "VTB Birleşik Ligi", "Winline Basket Cup": "Winline Basket Cup" },
 };
 
 // Переводит метку стадии/тура с сервера. Обрабатывает «Тур N» и «... (N)».

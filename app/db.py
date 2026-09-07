@@ -178,6 +178,16 @@ def init_db() -> None:
         VALUES (?, ?, ?, ?)
     """, leagues)
 
+    # Под-турниры: не плитка на главном (is_active = 0), но данные грузятся
+    # и доступны как вкладка внутри родительской лиги.
+    subtournaments = [
+        ("vtbcup", "Winline Basket Cup", "2025/26", 30),
+    ]
+    cur.executemany("""
+        INSERT OR IGNORE INTO leagues (id, name, season_label, sort_order, is_active)
+        VALUES (?, ?, ?, ?, 0)
+    """, subtournaments)
+
     conn.commit()
     conn.close()
 

@@ -380,11 +380,16 @@ async function showHome() {
 
 // ===== Экран лиги: вкладки =====
 function showLeague(league, activeTab = "standings") {
+  // league может быть родительской лигой (ВТБ) или её под-турниром (кубок).
+  // Родителя запоминаем, чтобы переключатель мог вернуть к чемпионату.
+  const parentLeague = league._parent || league;
+
   root.innerHTML = `
     <header class="app-header">
       <button class="back" id="back">${t("back")}</button>
-      <h1>${esc(tLeague(league.name))}</h1>
+      <h1>${esc(tLeague(parentLeague.name))}</h1>
     </header>
+    <div id="subtournament-switch"></div>
     <nav class="tabs">
       <button class="tab" data-tab="standings">${t("tab_standings")}</button>
       <button class="tab" data-tab="games">${t("tab_games")}</button>
@@ -405,6 +410,47 @@ function showLeague(league, activeTab = "standings") {
     });
   });
   openTab(league, activeTab);
+
+  // подгружаем переключатель под-турниров (кубок и т.п.)
+  setupSubtournamentSwitch(parentLeague, league, activeTab);
+}
+
+// Переключатель «Чемпионат / Кубок» под заголовком лиги. Показывается только
+// если у лиги есть под-турниры. Выбор просто меняет, данные какой лиги
+// (родителя или под-турнира) показывают вкладки.
+async function setupSubtournamentSwitch(parentLeague, currentLeague, activeTab) {
+  const box = document.getElementById("subtournament-switch");
+  if (!box) return;
+  let subs = [];
+  try {
+    subs = await api(`/api/leagues/${parentLeague.id}/subtournaments`);
+  } catch (e) {
+    return;                    // нет под-турниров или ошибка — просто без переключателя
+  }
+  if (!subs || !subs.length) return;
+
+  // варианты: сама лига + каждый под-турнир
+  const options = [{ id: parentLeague.id, name: parentLeague.name, isParent: true }]
+    .concat(subs.map(s => ({ id: s.id, name: s.name, isParent: false })));
+
+  box.className = "subtournament-switch";
+  box.innerHTML = options.map(o =>
+    `<button class="sub-switch-btn${o.id === currentLeague.id ? " active" : ""}"
+             data-sub="${esc(o.id)}">${esc(tLeague(o.name))}</button>`
+  ).join("");
+
+  box.querySelectorAll(".sub-switch-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const targetId = btn.dataset.sub;
+      if (targetId === currentLeague.id) return;      // уже выбрано
+      const opt = options.find(o => o.id === targetId);
+      // формируем объект лиги для показа; для под-турнира помним родителя
+      const targetLeague = opt.isParent
+        ? { id: parentLeague.id, name: parentLeague.name }
+        : { id: opt.id, name: opt.name, _parent: parentLeague };
+      showLeague(targetLeague, activeTab);
+    });
+  });
 }
 
 async function openTab(league, tabName) {
@@ -485,7 +531,7 @@ function renderStandings(standings) {
   for (const conf of Object.keys(byConf)) {
     const title = document.createElement("h2");
     title.className = "section-title";
-    title.textContent = CONFERENCE_KEYS[conf] ? t(CONFERENCE_KEYS[conf]) : conf;
+    title.textContent = CONFERENCE_KEYS[conf] ? t(CONFERENCE_KEYS[conf]) : tStage(conf);
     content.appendChild(title);
 
     const table = document.createElement("div");

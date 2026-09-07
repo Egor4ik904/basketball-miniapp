@@ -32,7 +32,7 @@ from app import bot as tg_bot
 from app import userdata
 from app import odds as odds_mod
 from app.telegram_auth import verify_init_data
-from app.adapters import nba, euroleague, vtb
+from app.adapters import nba, euroleague, vtb, vtbcup
 from app.brackets import build_bracket
 from app.scheduler import start_scheduler
 
@@ -44,6 +44,15 @@ ADAPTERS = {
     "nba": nba,
     "euroleague": euroleague,
     "vtb": vtb,
+    "vtbcup": vtbcup,      # Winline Basket Cup — под-турнир ВТБ (не плитка на
+                          # главном; показывается вкладкой внутри ВТБ)
+}
+
+# Под-турниры: лиги, которые НЕ показываются плиткой на главном экране, а
+# доступны как вкладка внутри «родительской» лиги. Ключ — под-турнир,
+# значение — родитель.
+SUBTOURNAMENTS = {
+    "vtbcup": "vtb",
 }
 
 
@@ -384,6 +393,22 @@ def get_leagues():
     ).fetchall()
     conn.close()
     return {"data": [dict(row) for row in rows]}
+
+
+@app.get("/api/leagues/{lid}/subtournaments")
+def get_subtournaments(lid: str):
+    """Под-турниры лиги (например, кубок у ВТБ). Фронт по этому списку рисует
+    переключатель «Чемпионат / Кубок». Пусто — переключателя нет."""
+    check_entity_id(lid)
+    subs = []
+    for sub_id, parent in SUBTOURNAMENTS.items():
+        if parent == lid:
+            conn = get_connection()
+            row = conn.execute("SELECT id, name FROM leagues WHERE id = ?", (sub_id,)).fetchone()
+            conn.close()
+            if row:
+                subs.append({"id": row["id"], "name": row["name"]})
+    return {"data": subs}
 
 
 @app.get("/api/leagues/{lid}/teams")
