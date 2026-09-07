@@ -1,27 +1,33 @@
-# explore_vtb_season.py  (версия 8 — сканируем серию 55xxx)
-# Номер сезона 55613 найден на сайте, но Calendar пока пуст (InfoBasket ещё
-# не залил). Сканируем серию 55600..55660: вдруг матчи уже есть под этим или
-# соседним номером. Ищем клубы ВТБ (ЦСКА, Зенit, УНИКС) и старт 25 сентября.
+# explore_schedule.py
+# Проверяем расписание для двух лиг:
+#  1) ВТБ — залит ли уже календарь нового сезона (перепроверка).
+#  2) Евролига — сколько будущих матчей в новом сезоне E2026 и их даты
+#     (чтобы добавить расписание нового сезона, не трогая таблицу старого).
 
-import io, sys
+import io, sys, re
+from datetime import datetime
 import httpx
 
 if hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 client = httpx.Client(headers={"User-Agent": "Mozilla/5.0 (compatible; BC/1.0)"},
-                      timeout=15, trust_env=False)
+                      timeout=20, trust_env=False)
 
+def head(t):
+    print("\n" + "="*72); print(t); print("="*72)
+
+# ---------- ВТБ ----------
+head("ВТБ — залит ли календарь нового сезона 2026/27")
 def to_iso(gd):
     try:
         d,m,y = gd.split("."); return f"{y}-{m}-{d}"
     except: return None
 
-# главные клубы ВТБ — по ним опознаём главную лигу
 VTB_CLUBS = {"ЦСКА","Зенит","УНИКС","Локомотив-К","Автодор","БЕТСИТИ ПАРМА",
-             "Енисей","МБА","Самара","Уралмаш","Динамо"}
+             "Енисей","МБА","Самара","Уралмаш","Динамо","ПАРМА"}
 
-def check(sid):
+def vtb_check(sid):
     try:
         r = client.get(f"https://org.infobasket.su/Widget/Calendar/{sid}",
                        params={"format":"json"})
@@ -29,52 +35,62 @@ def check(sid):
             return None
         games = r.json() or []
         if not games:
-            return ("empty", 0, None, None, set())
+            return ("empty",)
         dates = [to_iso(g.get("GameDate","")) for g in games if to_iso(g.get("GameDate",""))]
         teams = set()
         for g in games:
             for k in ("ShortTeamNameAru","ShortTeamNameBru"):
                 if g.get(k): teams.add(g[k])
-        return ("has", len(games), min(dates) if dates else None,
-                max(dates) if dates else None, teams)
+        return ("has", len(games), min(dates) if dates else "?",
+                max(dates) if dates else "?", teams)
     except Exception:
         return None
 
-print("="*72)
-print("Сканируем серию 55xxx на календарь нового сезона ВТБ")
-print("="*72)
-
-new_season_hits = []
-empty_but_exist = []
-for sid in range(55600, 55665):
-    res = check(sid)
-    if not res:
+# перепроверяем найденный номер и серию вокруг
+vtb_found = []
+for sid in list(range(55600, 55665)) + [55613]:
+    res = vtb_check(sid)
+    if not res or res[0] == "empty":
         continue
-    status, count, dmin, dmax, teams = res
-    if status == "empty":
-        empty_but_exist.append(sid)
-        continue
-    # есть матчи — проверяем, наши ли клубы и осень 2026
-    vtb_overlap = len(teams & VTB_CLUBS)
-    is_2026 = (dmax or "") >= "2026-08"
-    if vtb_overlap >= 3:
-        mark = ""
-        if is_2026:
-            mark = "  ← ★★★ НОВЫЙ СЕЗОН ВТБ 2026/27"
-            new_season_hits.append(sid)
-        elif (dmin or "") >= "2025-09" and (dmax or "") <= "2026-07":
-            mark = "  (старый сезон 2025/26)"
-        print(f"  {sid}: матчей {count}, клубов {len(teams)}, {dmin}..{dmax}{mark}")
-        if is_2026:
-            print(f"       клубы: {', '.join(sorted(teams))}")
+    _, count, dmin, dmax, teams = res
+    if len(teams & VTB_CLUBS) >= 3 and dmax >= "2026-08":
+        print(f"  ★ season_id={sid}: матчей {count}, {dmin}..{dmax}")
+        print(f"     клубы: {', '.join(sorted(teams))}")
+        vtb_found.append(sid)
 
-print("\n" + "="*72)
-if new_season_hits:
-    print(f"★ НАЙДЕН новый сезон под номером(ами): {new_season_hits}")
-    print("Впишем в season.py!")
+if vtb_found:
+    print(f"\n  ✅ ВТБ: календарь нового сезона ЗАЛИТ под номером(ами) {vtb_found}")
 else:
-    print("Календарь нового сезона в InfoBasket пока не залит (матчей нет).")
-    print(f"Существующие, но пустые номера в серии: {empty_but_exist[:10]}")
-    print("\nЭто значит: лига анонсировала расписание, но в техническую базу")
-    print("InfoBasket (откуда берём данные) оно ещё не попало. Появится ближе")
-    print("к старту (25 сентября). Проверим позже этим же скриптом.")
+    print("  ⏳ ВТБ: календарь нового сезона пока НЕ залит (матчей нет).")
+
+# ---------- Евролига ----------
+head("Евролига — расписание нового сезона E2026")
+EL = "https://api-live.euroleague.net"
+today = datetime.now().strftime("%Y-%m-%d")
+
+for code in ["E2026"]:
+    try:
+        r = client.get(f"{EL}/v2/competitions/E/seasons/{code}/games")
+        data = r.json()
+        games = data.get("data") if isinstance(data, dict) else data
+        games = games or []
+        future = []
+        for g in games:
+            d = (g.get("date") or g.get("startDate") or "")[:10]
+            if d >= today:
+                h = g.get("home") or g.get("homeTeam") or g.get("local") or "?"
+                a = g.get("away") or g.get("awayTeam") or g.get("road") or "?"
+                future.append((d, h, a))
+        print(f"  {code}: всего матчей {len(games)}, будущих {len(future)}")
+        if future:
+            future.sort()
+            print(f"  первые 5 будущих матчей:")
+            for d, h, a in future[:5]:
+                print(f"     {d}: {h} — {a}")
+            print(f"  диапазон: {future[0][0]} .. {future[-1][0]}")
+            print("  -> ✅ расписание нового сезона ЕСТЬ, можно добавить")
+    except Exception as e:
+        print(f"  {code}: ошибка {e}")
+
+print("\n\nПришли вывод — по нему решим: добавляем расписание Евролиги нового")
+print("сезона, и готов ли ВТБ.")

@@ -202,6 +202,25 @@ def euroleague() -> dict:
     except Exception as e:
         print(f"[сезон] Евролига: сезон составов не уточнить ({e})")
 
+    # Сезон для РАСПИСАНИЯ — тоже отдельный. Пока таблицу показываем от
+    # прошлого (доигранного) сезона, расписание предстоящих матчей логично
+    # брать уже из нового, если у него опубликован календарь с будущими
+    # играми. Так на вкладке «Матчи» в разделе расписания видны игры нового
+    # сезона, а таблица остаётся полной от прошлого. Если новый сезон и есть
+    # текущий (data_season) — код совпадает, ничего не меняется.
+    schedule_code = data_season.get("code")
+    try:
+        for s_cand in seasons:
+            code_c = s_cand.get("code")
+            if code_c == data_season.get("code"):
+                break                      # дошли до текущего — новее нет смысла
+            # более новый сезон с опубликованным расписанием
+            if _el_has_schedule(code_c):
+                schedule_code = code_c
+                break
+    except Exception as e:
+        print(f"[сезон] Евролига: сезон расписания не уточнить ({e})")
+
     result = {
         "code": data_season.get("code"),
         "label": data_season.get("alias") or data_season.get("name"),
@@ -209,6 +228,8 @@ def euroleague() -> dict:
         "standings_round": _el_standings_round(data_season.get("code")),
         "roster_code": roster_code,
         "roster_current": roster_code == data_season.get("code"),
+        "schedule_code": schedule_code,
+        "schedule_current": schedule_code == data_season.get("code"),
     }
     _cache["euroleague"] = result
 

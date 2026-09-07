@@ -203,18 +203,32 @@ def _team_info(code: str) -> dict:
 
 # ===== Матчи (v1/results, XML) =====
 _results_cache = None
+_results_cache_by_season = {}
+
+
+def _get_results_for(season_code: str) -> list:
+    """Матчи конкретного сезона (кешируется по коду). У прошедшего сезона это
+    сыгранные игры (для таблицы и результатов), у нового — предстоящие
+    (для расписания)."""
+    if season_code not in _results_cache_by_season:
+        try:
+            r = client.get(f"{API}/v1/results", params={"seasonCode": season_code})
+            r.raise_for_status()
+            data = xmltodict.parse(r.content)
+            games = (data.get("results") or {}).get("game") or []
+            if isinstance(games, dict):
+                games = [games]
+            _results_cache_by_season[season_code] = games
+        except Exception:
+            _results_cache_by_season[season_code] = []
+    return _results_cache_by_season[season_code]
 
 
 def _get_results() -> list:
+    """Матчи основного сезона (для таблицы/результатов) — прежнее поведение."""
     global _results_cache
     if _results_cache is None:
-        r = client.get(f"{API}/v1/results", params={"seasonCode": _season_code()})
-        r.raise_for_status()
-        data = xmltodict.parse(r.content)
-        games = (data.get("results") or {}).get("game") or []
-        if isinstance(games, dict):
-            games = [games]
-        _results_cache = games
+        _results_cache = _get_results_for(_season_code())
     return _results_cache
 
 
@@ -232,30 +246,45 @@ def fetch_season_games() -> list[dict]:
     Стадия берётся из полей round ('RS' / 'PI' / 'PO' / 'FF') и group
     ('Regular Season', 'PLAYOFF A'..'PLAYOFF D', 'SEMIFINAL A', ...).
     """
-    code = _season_code()
+    info = _season()
+    code = info["code"]
+    schedule_code = info.get("schedule_code", code)
+
+    # Сезоны, из которых берём матчи: основной (таблица/результаты) и, если он
+    # другой, сезон расписания (предстоящие матчи нового сезона). Объединяем.
+    season_codes = [code]
+    if schedule_code and schedule_code != code:
+        season_codes.append(schedule_code)
+
     games = []
-    for g in _get_results():
-        iso = _euro_to_iso(g.get("date"))
-        if not iso:
-            continue
-        played = g.get("played") == "true"
-        time_ = g.get("time") or "00:00"
-        stage = stages.euroleague(g.get("round"), g.get("group"), g.get("gameday"))
-        games.append({
-            "id": f"euroleague:{g.get('gamenumber')}",
-            "league_id": "euroleague",
-            "season": code,
-            "game_date": iso,
-            "datetime": f"{iso}T{time_}:00",
-            "status": "final" if played else "scheduled",
-            "home_team_id": f"euroleague:{g.get('homecode')}",
-            "away_team_id": f"euroleague:{g.get('awaycode')}",
-            "home_score": g.get("homescore") if played else None,
-            "away_score": g.get("awayscore") if played else None,
-            "period": None,
-            "clock": None,
-            **stage,
-        })
+    seen_ids = set()
+    for sc in season_codes:
+        for g in _get_results_for(sc):
+            iso = _euro_to_iso(g.get("date"))
+            if not iso:
+                continue
+            gid = f"euroleague:{g.get('gamenumber')}"
+            if gid in seen_ids:
+                continue                   # один матч из двух сезонов не дублируем
+            seen_ids.add(gid)
+            played = g.get("played") == "true"
+            time_ = g.get("time") or "00:00"
+            stage = stages.euroleague(g.get("round"), g.get("group"), g.get("gameday"))
+            games.append({
+                "id": gid,
+                "league_id": "euroleague",
+                "season": sc,
+                "game_date": iso,
+                "datetime": f"{iso}T{time_}:00",
+                "status": "final" if played else "scheduled",
+                "home_team_id": f"euroleague:{g.get('homecode')}",
+                "away_team_id": f"euroleague:{g.get('awaycode')}",
+                "home_score": g.get("homescore") if played else None,
+                "away_score": g.get("awayscore") if played else None,
+                "period": None,
+                "clock": None,
+                **stage,
+            })
     # Источник отдаёт матчи в произвольном порядке — сортируем сами.
     games.sort(key=lambda x: x["datetime"])
     return games
@@ -582,11 +611,12 @@ def fetch_player_stats(player_code: str) -> dict | None:
 
 def clear_cache():
     """Сбрасывает кеши адаптера (чтобы автообновление взяло свежие данные)."""
-    global _standings_cache, _teams_by_code, _results_cache
+    global _standings_cache, _teams_by_code, _results_cache, _results_cache_by_season
     global _players_cache, _people_cache, _photo_cache, _clubs_cache
     _standings_cache = None
     _teams_by_code = None
     _results_cache = None
+    _results_cache_by_season = {}
     _players_cache = None
     _people_cache = {}
     _photo_cache = None
