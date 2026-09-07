@@ -506,7 +506,37 @@ def get_news_endpoint(lid: str, limit: int = 20, offset: int = 0):
 
 @app.get("/api/leagues/{lid}/standings")
 def get_standings_endpoint(lid: str):
-    return {"data": get_standings(lid)}
+    rows = get_standings(lid)
+    if not rows:
+        # сезон ещё не начался — отдаём команды с нулями, чтобы таблица была
+        rows = _zero_standings(lid)
+    return {"data": rows}
+
+
+def _zero_standings(lid: str) -> list:
+    """Нулевая таблица из команд лиги (для межсезонья, когда игр ещё нет).
+    Берём команды текущего сезона, ставим 0-0. Без конференций — единым
+    списком; настоящие конференции придут, когда начнётся сезон."""
+    try:
+        teams = get_teams(lid, season_mod.teams_season(lid))
+    except Exception:
+        teams = []
+    rows = []
+    for i, t in enumerate(teams, 1):
+        rows.append({
+            "team_id": t.get("id"),
+            "conference": None,
+            "rank": i,
+            "wins": 0,
+            "losses": 0,
+            "win_pct": None,
+            "games_back": None,
+            "streak": "",
+            "team_name": t.get("name"),
+            "team_short": t.get("short_name"),
+            "team_logo": t.get("logo_url"),
+        })
+    return rows
 
 
 @app.get("/api/leagues/{lid}/seasons")

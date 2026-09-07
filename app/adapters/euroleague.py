@@ -167,7 +167,7 @@ def list_seasons() -> list[dict]:
     """Сезоны, доступные для выбора в таблице (новые сверху). Возвращает
     [{code, label}]. Ограничиваемся разумным числом последних сезонов."""
     try:
-        seasons = _el_seasons()          # уже отсортированы, новые сверху
+        seasons = season_mod._el_seasons()   # функция в season.py
     except Exception:
         return []
     result = []
@@ -191,7 +191,7 @@ def fetch_standings_for(season_code: str) -> list[dict]:
 
     # определяем номер последнего тура сезона
     try:
-        round_no = _el_standings_round(season_code)
+        round_no = season_mod._el_standings_round(season_code)
     except Exception:
         round_no = 34                    # запасной вариант (регулярка Евролиги)
 

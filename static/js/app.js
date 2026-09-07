@@ -504,28 +504,38 @@ async function loadStandingsSub(league) {
   try {
     if (standingsSubTab === "bracket") {
       renderBracket(await api(`/api/leagues/${league.id}/bracket`), league);
-    } else {
-      // выбор сезона показываем только для таблицы (не плей-офф)
-      await renderSeasonSelector(league);
-      if (selectedSeason) {
-        // таблица за выбранный прошлый сезон — тянем из источника
-        const data = await api(`/api/leagues/${league.id}/standings/${selectedSeason}`);
-        renderStandings(data);
-      } else {
-        // текущий сезон — как раньше, из базы
-        renderStandings(await api(`/api/leagues/${league.id}/standings`));
-      }
+      return;
     }
+
+    // Готовим контейнер: селектор сезона (если есть) + место под таблицу.
+    // Таблица рисуется ВСЕГДА, даже если селектора нет.
+    box.className = "";
+    box.innerHTML = "";
+    await renderSeasonSelector(league, box);   // добавит селектор, если сезоны есть
+
+    // контейнер под таблицу (создаём, если селектор его не создал)
+    let tableBox = document.getElementById("season-standings");
+    if (!tableBox) {
+      tableBox = document.createElement("div");
+      tableBox.id = "season-standings";
+      box.appendChild(tableBox);
+    }
+    tableBox.className = "muted";
+    tableBox.textContent = t("loading");
+
+    const url = selectedSeason
+      ? `/api/leagues/${league.id}/standings/${selectedSeason}`
+      : `/api/leagues/${league.id}/standings`;
+    renderStandings(await api(url));
   } catch (e) {
     box.className = "muted";
     box.textContent = t("err_data");
   }
 }
 
-// Селектор сезона над таблицей. Показывается, если у лиги есть список сезонов.
-async function renderSeasonSelector(league) {
-  const box = document.getElementById("sub-content");
-  // список сезонов лиги (кешируем)
+// Добавляет селектор сезона в контейнер box, если у лиги есть список сезонов.
+// Таблицу НЕ рисует — только селектор и пустой контейнер под таблицу.
+async function renderSeasonSelector(league, box) {
   let seasons = seasonsCache[league.id];
   if (seasons === undefined) {
     try {
@@ -537,9 +547,6 @@ async function renderSeasonSelector(league) {
   }
   if (!seasons || !seasons.length) return;   // нет истории — без селектора
 
-  // очищаем контейнер и добавляем выпадающий список
-  box.className = "";
-  box.innerHTML = "";
   const wrap = document.createElement("div");
   wrap.className = "season-select-wrap";
   const label = document.createElement("span");
@@ -547,7 +554,6 @@ async function renderSeasonSelector(league) {
   label.textContent = t("season") + ":";
   const sel = document.createElement("select");
   sel.className = "season-select";
-  // первый вариант — текущий сезон
   const optCur = document.createElement("option");
   optCur.value = "";
   optCur.textContent = t("current_season");
@@ -567,7 +573,6 @@ async function renderSeasonSelector(league) {
   wrap.appendChild(sel);
   box.appendChild(wrap);
 
-  // ниже селектора — контейнер под таблицу
   const tableBox = document.createElement("div");
   tableBox.id = "season-standings";
   box.appendChild(tableBox);
