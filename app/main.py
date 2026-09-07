@@ -513,29 +513,56 @@ def get_standings_endpoint(lid: str):
     return {"data": rows}
 
 
+# Деление NBA на конференции по ESPN ID команд (для нулевой таблицы межсезонья,
+# когда настоящая таблица с конференциями ещё не пришла).
+_NBA_EAST_IDS = {1, 2, 4, 5, 8, 11, 14, 15, 17, 18, 19, 20, 27, 28, 30}
+_NBA_WEST_IDS = {3, 6, 7, 9, 10, 12, 13, 16, 21, 22, 23, 24, 25, 26, 29}
+
+
 def _zero_standings(lid: str) -> list:
     """Нулевая таблица из команд лиги (для межсезонья, когда игр ещё нет).
-    Берём команды текущего сезона, ставим 0-0. Без конференций — единым
-    списком; настоящие конференции придут, когда начнётся сезон."""
+    Берём команды текущего сезона, ставим 0-0. Для NBA раскладываем по
+    конференциям Восток/Запад; для остальных лиг — единым списком."""
     try:
         teams = get_teams(lid, season_mod.teams_season(lid))
     except Exception:
         teams = []
+
+    def conf_of(team_id):
+        if lid != "nba":
+            return None
+        try:
+            eid = int(str(team_id).split(":")[1])
+        except (ValueError, IndexError):
+            return None
+        if eid in _NBA_EAST_IDS:
+            return "Eastern Conference"
+        if eid in _NBA_WEST_IDS:
+            return "Western Conference"
+        return None
+
+    # группируем и нумеруем места внутри конференции
+    by_conf = {}
+    for t in teams:
+        c = conf_of(t.get("id"))
+        by_conf.setdefault(c, []).append(t)
+
     rows = []
-    for i, t in enumerate(teams, 1):
-        rows.append({
-            "team_id": t.get("id"),
-            "conference": None,
-            "rank": i,
-            "wins": 0,
-            "losses": 0,
-            "win_pct": None,
-            "games_back": None,
-            "streak": "",
-            "team_name": t.get("name"),
-            "team_short": t.get("short_name"),
-            "team_logo": t.get("logo_url"),
-        })
+    for c, group in by_conf.items():
+        for i, t in enumerate(sorted(group, key=lambda x: x.get("name") or ""), 1):
+            rows.append({
+                "team_id": t.get("id"),
+                "conference": c,
+                "rank": i,
+                "wins": 0,
+                "losses": 0,
+                "win_pct": None,
+                "games_back": None,
+                "streak": "",
+                "team_name": t.get("name"),
+                "team_short": t.get("short_name"),
+                "team_logo": t.get("logo_url"),
+            })
     return rows
 
 

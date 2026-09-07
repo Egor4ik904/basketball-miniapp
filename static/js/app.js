@@ -523,10 +523,18 @@ async function loadStandingsSub(league) {
     tableBox.className = "muted";
     tableBox.textContent = t("loading");
 
-    const url = selectedSeason
-      ? `/api/leagues/${league.id}/standings/${selectedSeason}`
-      : `/api/leagues/${league.id}/standings`;
-    renderStandings(await api(url));
+    // Загрузку таблицы оборачиваем ОТДЕЛЬНО: если она упадёт, ошибку покажем
+    // только в области таблицы, а селектор сезона останется на месте —
+    // чтобы можно было выбрать другой сезон.
+    try {
+      const url = selectedSeason
+        ? `/api/leagues/${league.id}/standings/${selectedSeason}`
+        : `/api/leagues/${league.id}/standings`;
+      renderStandings(await api(url));
+    } catch (inner) {
+      const tb = document.getElementById("season-standings");
+      if (tb) { tb.className = "muted"; tb.textContent = t("err_data"); }
+    }
   } catch (e) {
     box.className = "muted";
     box.textContent = t("err_data");
