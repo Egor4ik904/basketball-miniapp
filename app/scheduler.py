@@ -185,6 +185,18 @@ def run_notifications(adapters, bot, loop):
         print(f"[уведомления] проход прерван: {e}")
 
 
+def check_webhook(bot, loop):
+    """Проверяет, на месте ли вебхук бота, и переустанавливает, если слетел.
+    Асинхронный вызов — гоним в основной цикл бота, как и рассылку."""
+    import asyncio
+    from app import bot as tg_bot
+    try:
+        future = asyncio.run_coroutine_threadsafe(tg_bot.ensure_webhook(), loop)
+        future.result(timeout=30)
+    except Exception as e:
+        print(f"[бот] проверка вебхука прервана: {e}")
+
+
 def cleanup_notifications():
     """Раз в сутки убирает старые записи журнала уведомлений."""
     from app import userdata
@@ -232,6 +244,14 @@ def start_scheduler(adapters, bot=None, loop=None):
         scheduler.add_job(refresh_odds_job, "interval", hours=3,
                           args=[adapters], id="odds")
         print("[планировщик] обновление коэффициентов включено")
+
+    # Самопроверка вебхука бота: раз в 3 часа убеждаемся, что он на месте,
+    # и переустанавливаем, если слетел. Гарантия, что бот не останется
+    # без вебхука надолго (как случалось раньше).
+    if bot is not None and loop is not None:
+        scheduler.add_job(check_webhook, "interval", hours=3,
+                          args=[bot, loop], id="webhook_check")
+        print("[планировщик] самопроверка вебхука включена")
 
     # Уведомления о матчах — раз в минуту. Работают только если есть бот,
     # главный цикл и база пользователей (иначе слать некому и нечем).

@@ -72,15 +72,25 @@ async def setup_webhook() -> None:
     # secret_token — вторая проверка: Telegram будет слать его в заголовке
     # каждого запроса, а мы сверять. Так подделать обращение к вебхуку
     # не выйдет, даже зная адрес.
-    await bot.set_webhook(
-        url=url,
-        secret_token=config.WEBHOOK_SECRET or None,
-        # drop_pending_updates НЕ ставим: иначе сообщения, пришедшие пока
-        # сервер на бесплатном хостинге просыпался, терялись бы — и /start
-        # не доходил. Пусть Telegram досылает их после пробуждения.
-        drop_pending_updates=False,
-    )
-    print(f"[бот] вебхук зарегистрирован: {url}")
+    #
+    # Ставим с несколькими попытками: если Telegram на старте недоступен,
+    # одна неудача раньше оставляла вебхук пустым надолго (бот молчал).
+    import asyncio
+    for attempt in range(1, 4):
+        try:
+            await bot.set_webhook(
+                url=url,
+                secret_token=config.WEBHOOK_SECRET or None,
+                # drop_pending_updates НЕ ставим: иначе сообщения, пришедшие
+                # пока сервер просыпался, терялись бы — и /start не доходил.
+                drop_pending_updates=False,
+            )
+            print(f"[бот] вебхук зарегистрирован (попытка {attempt}): {url}")
+            break
+        except Exception as e:
+            print(f"[бот] попытка {attempt} установить вебхук не удалась: {e}")
+            if attempt < 3:
+                await asyncio.sleep(3)
 
     # Кнопка «Открыть приложение» слева от поля ввода — всегда под рукой.
     try:
@@ -92,6 +102,24 @@ async def setup_webhook() -> None:
         )
     except Exception as e:
         print(f"[бот] кнопку-меню поставить не удалось: {e}")
+
+
+async def ensure_webhook() -> None:
+    """Проверяет, что вебхук установлен и указывает на наш адрес. Если слетел
+    (url пустой или чужой) — ставит заново. Зовётся планировщиком раз в
+    несколько часов, чтобы бот не оставался без вебхука надолго."""
+    if not (bot and config.PUBLIC_URL):
+        return
+    want = f"{config.PUBLIC_URL}{WEBHOOK_PATH}"
+    try:
+        info = await bot.get_webhook_info()
+        current = getattr(info, "url", "") or ""
+        if current != want:
+            print(f"[бот] вебхук слетел или изменился (было: '{current}') — ставлю заново")
+            await setup_webhook()
+        # если всё на месте — молчим, чтобы не засорять лог
+    except Exception as e:
+        print(f"[бот] проверка вебхука не удалась: {e}")
 
 
 async def remove_webhook() -> None:
