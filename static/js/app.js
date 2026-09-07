@@ -592,6 +592,16 @@ function renderStandings(standings) {
     (byConf[c] = byConf[c] || []).push(row);
   }
 
+  // сортируем внутри каждой конференции/группы по месту (rank).
+  // rank бывает строкой или пустым — пустые уводим в конец.
+  const rankNum = (r) => {
+    const n = parseInt(r.rank, 10);
+    return isNaN(n) ? 9999 : n;
+  };
+  for (const c of Object.keys(byConf)) {
+    byConf[c].sort((a, b) => rankNum(a) - rankNum(b));
+  }
+
   for (const conf of Object.keys(byConf)) {
     const title = document.createElement("h2");
     title.className = "section-title";
