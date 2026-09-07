@@ -270,8 +270,9 @@ async def lifespan(app: FastAPI):
     scheduler = getattr(app.state, "scheduler", None)
     if scheduler is not None:
         scheduler.shutdown(wait=False)
-    if config.bot_enabled():
-        await tg_bot.remove_webhook()
+    # Вебхук намеренно НЕ снимаем: пусть остаётся установленным между
+    # перезапусками и деплоями. Снятие здесь раньше и приводило к тому, что
+    # после деплоя бот замолкал.
     userdata.close_pool()
 
 
