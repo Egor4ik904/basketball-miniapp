@@ -105,8 +105,15 @@ async def remove_webhook() -> None:
 
 async def handle_update(payload: dict) -> None:
     """Передаёт одно обновление от Telegram в обработчики aiogram.
-    Вызывается из веб-роутера, когда Telegram стучится на наш адрес."""
+    Вызывается из веб-роутера, когда Telegram стучится на наш адрес.
+
+    Ошибки ловим и логируем: обработка идёт в фоновой задаче, а у неё
+    исключение иначе потерялось бы молча (и пользователь не понял бы, почему
+    бот не ответил)."""
     if not (bot and dp):
         return
-    update = Update.model_validate(payload, context={"bot": bot})
-    await dp.feed_update(bot, update)
+    try:
+        update = Update.model_validate(payload, context={"bot": bot})
+        await dp.feed_update(bot, update)
+    except Exception as e:
+        print(f"[бот] ошибка обработки обновления: {type(e).__name__}: {e}")

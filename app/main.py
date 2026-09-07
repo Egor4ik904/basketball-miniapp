@@ -353,11 +353,17 @@ async def telegram_webhook(
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ):
     """Сюда Telegram присылает сообщения бота. Секрет проверяем дважды:
-    он зашит в самом адресе (в пути) и приходит в заголовке — сверяем оба."""
+    он зашит в самом адресе (в пути) и приходит в заголовке — сверяем оба.
+
+    Отвечаем Telegram сразу, а обработку сообщения ведём в фоне: так на
+    холодном старте (сервер только проснулся) доставка не срывается по
+    таймауту, и /start не теряется."""
     if config.WEBHOOK_SECRET and x_telegram_bot_api_secret_token != config.WEBHOOK_SECRET:
         raise HTTPException(status_code=403, detail="Неверный секрет")
     payload = await request.json()
-    await tg_bot.handle_update(payload)
+    # не ждём завершения обработки — запускаем её отдельной задачей
+    import asyncio
+    asyncio.create_task(tg_bot.handle_update(payload))
     return {"ok": True}
 
 
