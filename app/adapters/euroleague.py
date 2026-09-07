@@ -159,6 +159,79 @@ def fetch_teams() -> list[dict]:
     return teams
 
 
+# Кеш таблиц прошлых сезонов: {season_code: [строки таблицы]}
+_standings_by_season: dict = {}
+
+
+def list_seasons() -> list[dict]:
+    """Сезоны, доступные для выбора в таблице (новые сверху). Возвращает
+    [{code, label}]. Ограничиваемся разумным числом последних сезонов."""
+    try:
+        seasons = _el_seasons()          # уже отсортированы, новые сверху
+    except Exception:
+        return []
+    result = []
+    for s in seasons[:8]:                # последние ~8 сезонов
+        code = s.get("code")
+        if not code:
+            continue
+        result.append({
+            "code": code,
+            "label": s.get("alias") or s.get("name") or code,
+        })
+    return result
+
+
+def fetch_standings_for(season_code: str) -> list[dict]:
+    """Турнирная таблица КОНКРЕТНОГО сезона (для выбора сезона). Для прошлых
+    сезonов берём таблицу за последний тур (сезон сыгран). Результат
+    кешируется по коду сезона."""
+    if season_code in _standings_by_season:
+        return _standings_by_season[season_code]
+
+    # определяем номер последнего тура сезона
+    try:
+        round_no = _el_standings_round(season_code)
+    except Exception:
+        round_no = 34                    # запасной вариант (регулярка Евролиги)
+
+    url = (f"{API}/v3/competitions/{COMP}/seasons/{season_code}"
+           f"/rounds/{round_no}/basicstandings")
+    rows = []
+    try:
+        r = client.get(url)
+        r.raise_for_status()
+        data = r.json()
+        for t in data.get("teams", []):
+            club = t.get("club") or {}
+            wp = t.get("winPercentage")
+            win_pct = None
+            if wp:
+                try:
+                    win_pct = round(float(str(wp).replace("%", "")) / 100, 3)
+                except Exception:
+                    win_pct = None
+            rows.append({
+                "team_id": f"euroleague:{club.get('code')}",
+                "league_id": "euroleague",
+                "conference": None,
+                "rank": t.get("position"),
+                "team_name": club.get("name"),
+                "team_short": club.get("abbreviatedName"),
+                "team_logo": (club.get("images") or {}).get("crest"),
+                "wins": t.get("gamesWon"),
+                "losses": t.get("gamesLost"),
+                "win_pct": win_pct,
+                "games_back": None,
+                "streak": "".join(t.get("last5Form") or []),
+            })
+    except Exception as e:
+        print(f"[euroleague] таблица сезона {season_code} не получена: {e}")
+
+    _standings_by_season[season_code] = rows
+    return rows
+
+
 def fetch_standings() -> list[dict]:
     standings = []
     for t in _standings_data().get("teams", []):
@@ -617,6 +690,7 @@ def clear_cache():
     _teams_by_code = None
     _results_cache = None
     _results_cache_by_season = {}
+    _standings_by_season.clear()
     _players_cache = None
     _people_cache = {}
     _photo_cache = None

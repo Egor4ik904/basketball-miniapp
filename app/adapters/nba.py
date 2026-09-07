@@ -9,6 +9,7 @@ from datetime import date as _date, datetime as _datetime, timedelta
 import httpx
 
 from app import stages
+from app import season as season_mod
 
 ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
 ESPN_STANDINGS_URL = "https://site.api.espn.com/apis/v2/sports/basketball/nba/standings"
@@ -211,6 +212,77 @@ def fetch_season_games(start: str = SEASON_START, end: str = SEASON_END) -> list
     games.sort(key=lambda g: g["datetime"])
     print(f"[nba] матчи сезона загружены: {len(games)}")
     return games
+
+
+_standings_by_season: dict = {}
+
+
+def list_seasons() -> list[dict]:
+    """Сезоны для выбора в таблице (новые сверху). NBA-сезон обозначаем годом
+    окончания: '2025-26' -> год 2026. Берём последние несколько."""
+    try:
+        cur = int(season_mod.nba()["year"]) if hasattr(season_mod, "nba") else 2026
+    except Exception:
+        cur = 2026
+    seasons = []
+    for year in range(cur, cur - 6, -1):     # текущий и 5 прошлых
+        label = f"{year-1}-{str(year)[-2:]}"
+        seasons.append({"code": str(year), "label": label})
+    return seasons
+
+
+def fetch_standings_for(season_code: str) -> list[dict]:
+    """Турнирная таблица NBA за конкретный сезон (год окончания). Для выбора
+    сезона. Кешируется по году."""
+    if season_code in _standings_by_season:
+        return _standings_by_season[season_code]
+
+    rows = _parse_standings(params={"level": "3", "season": season_code})
+    _standings_by_season[season_code] = rows
+    return rows
+
+
+def _parse_standings(params) -> list[dict]:
+    """Общий разбор таблицы ESPN (используется и текущим сезоном, и прошлыми)."""
+    response = client.get(ESPN_STANDINGS_URL, params=params)
+    response.raise_for_status()
+    data = response.json()
+
+    def stat_value(by_name, key):
+        return (by_name.get(key) or {}).get("value")
+
+    def stat_display(by_name, key):
+        return (by_name.get(key) or {}).get("displayValue")
+
+    by_team = {}
+    for conf in data.get("children", []):
+        conf_name = conf.get("name")
+        groups = []
+        if isinstance(conf.get("standings"), dict):
+            groups.append(conf["standings"])
+        for div in (conf.get("children") or []):
+            if isinstance(div.get("standings"), dict):
+                groups.append(div["standings"])
+        for group in groups:
+            for entry in (group.get("entries") or []):
+                team = entry.get("team") or {}
+                team_id = f"nba:{team.get('id')}"
+                by_name = {st.get("name"): st for st in (entry.get("stats") or [])}
+                by_team[team_id] = {
+                    "team_id": team_id,
+                    "league_id": "nba",
+                    "conference": conf_name,
+                    "team_name": team.get("displayName"),
+                    "team_short": team.get("abbreviation"),
+                    "team_logo": (team.get("logos") or [{}])[0].get("href") if team.get("logos") else None,
+                    "rank": stat_value(by_name, "playoffSeed"),
+                    "wins": stat_value(by_name, "wins"),
+                    "losses": stat_value(by_name, "losses"),
+                    "win_pct": stat_value(by_name, "winPercent"),
+                    "games_back": stat_display(by_name, "gamesBehind"),
+                    "streak": stat_display(by_name, "streak"),
+                }
+    return list(by_team.values())
 
 
 def fetch_standings() -> list[dict]:

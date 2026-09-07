@@ -70,6 +70,8 @@ SUBTOURNAMENTS = {
 # и кода нет. Раньше двоеточие было обязательным, из-за чего добавление лиги
 # в избранное отклонялось с ошибкой, хотя команды и игроки проходили.
 ENTITY_ID_RE = re.compile(r"^[a-z]{2,20}(:[A-Za-z0-9_.-]{1,40})?$")
+# Код сезона: буквы и цифры (E2025, 2026, 52553). Короткий, без спецсимволов.
+SEASON_CODE_RE = re.compile(r"^[A-Za-z0-9]{1,12}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -505,6 +507,36 @@ def get_news_endpoint(lid: str, limit: int = 20, offset: int = 0):
 @app.get("/api/leagues/{lid}/standings")
 def get_standings_endpoint(lid: str):
     return {"data": get_standings(lid)}
+
+
+@app.get("/api/leagues/{lid}/seasons")
+def get_seasons_endpoint(lid: str):
+    """Сезоны, доступные для выбора в таблице. Пусто — выбора сезона нет
+    (лига не поддерживает историю)."""
+    check_entity_id(lid)
+    adapter = adapter_for(lid)
+    if adapter and hasattr(adapter, "list_seasons"):
+        try:
+            return {"data": adapter.list_seasons()}
+        except Exception as e:
+            print(f"[seasons] {lid}: список сезонов не получить: {e}")
+    return {"data": []}
+
+
+@app.get("/api/leagues/{lid}/standings/{season}")
+def get_standings_season_endpoint(lid: str, season: str):
+    """Таблица за КОНКРЕТНЫЙ сезон (для выбора сезона). Тянется из источника
+    с кешированием в адаптере."""
+    check_entity_id(lid)
+    if not SEASON_CODE_RE.match(season or ""):
+        raise HTTPException(status_code=400, detail="Некорректный сезон")
+    adapter = adapter_for(lid)
+    if adapter and hasattr(adapter, "fetch_standings_for"):
+        try:
+            return {"data": adapter.fetch_standings_for(season)}
+        except Exception as e:
+            print(f"[standings] {lid}/{season}: не получить: {e}")
+    return {"data": []}
 
 
 @app.get("/api/players/{pid}/stats")

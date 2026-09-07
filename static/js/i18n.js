@@ -104,6 +104,7 @@ const TRANSLATIONS = {
 
     // сезон
     season: "Сезон",
+    current_season: "Текущий сезон",
 
     // подвкладки и колонки, добавленные во втором проходе
     subtab_regular: "Регулярный чемпионат",
@@ -215,6 +216,7 @@ const TRANSLATIONS = {
     err_favorites: "Couldn't load favorites 😕",
 
     season: "Season",
+    current_season: "Current season",
 
     subtab_regular: "Regular season",
     subtab_playoff: "Playoffs",
@@ -313,6 +315,7 @@ const TRANSLATIONS = {
     err_stats: "Statistik konnte nicht geladen werden 😕",
     err_favorites: "Favoriten konnten nicht geladen werden 😕",
     season: "Saison",
+    current_season: "Aktuelle Saison",
     subtab_regular: "Hauptrunde",
     subtab_playoff: "Playoffs",
     subtab_results: "Ergebnisse",
@@ -408,6 +411,7 @@ const TRANSLATIONS = {
     err_stats: "No se pudieron cargar las estadísticas 😕",
     err_favorites: "No se pudieron cargar los favoritos 😕",
     season: "Temporada",
+    current_season: "Temporada actual",
     subtab_regular: "Temporada regular",
     subtab_playoff: "Playoffs",
     subtab_results: "Resultados",
@@ -503,6 +507,7 @@ const TRANSLATIONS = {
     err_stats: "Impossibile caricare le statistiche 😕",
     err_favorites: "Impossibile caricare i preferiti 😕",
     season: "Stagione",
+    current_season: "Stagione attuale",
     subtab_regular: "Stagione regolare",
     subtab_playoff: "Playoff",
     subtab_results: "Risultati",
@@ -598,6 +603,7 @@ const TRANSLATIONS = {
     err_stats: "İstatistikler yüklenemedi 😕",
     err_favorites: "Favoriler yüklenemedi 😕",
     season: "Sezon",
+    current_season: "Güncel sezon",
     subtab_regular: "Normal sezon",
     subtab_playoff: "Playofflar",
     subtab_results: "Sonuçlar",

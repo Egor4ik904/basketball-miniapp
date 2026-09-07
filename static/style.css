@@ -432,3 +432,25 @@ body {
   color: #fff;
   border-color: var(--accent);
 }
+
+/* ===== Выбор сезона в таблице ===== */
+.season-select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.season-select-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+.season-select {
+  flex: 1;
+  background: var(--card);
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 14px;
+  padding: 8px 10px;
+  cursor: pointer;
+}

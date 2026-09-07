@@ -264,6 +264,8 @@ const CONFERENCE_KEYS = {
 
 let boxActiveTeam = 0;            // активная команда на экране матча
 let standingsSubTab = "table";    // «table» или «bracket» внутри вкладки «Таблица»
+let selectedSeason = null;        // выбранный сезон в таблице (null = текущий)
+let seasonsCache = {};            // {leagueId: [сезоны]} — чтобы не запрашивать повторно
 let gamesSubTab = "results";      // «results», «schedule» или «date» внутри вкладки «Матчи»
 let gamesDate = todayStr();       // выбранный день в режиме «Дата»
 let gamesOffset = 0;              // сколько матчей уже показано (для «Показать ещё»)
@@ -503,7 +505,16 @@ async function loadStandingsSub(league) {
     if (standingsSubTab === "bracket") {
       renderBracket(await api(`/api/leagues/${league.id}/bracket`), league);
     } else {
-      renderStandings(await api(`/api/leagues/${league.id}/standings`));
+      // выбор сезона показываем только для таблицы (не плей-офф)
+      await renderSeasonSelector(league);
+      if (selectedSeason) {
+        // таблица за выбранный прошлый сезон — тянем из источника
+        const data = await api(`/api/leagues/${league.id}/standings/${selectedSeason}`);
+        renderStandings(data);
+      } else {
+        // текущий сезон — как раньше, из базы
+        renderStandings(await api(`/api/leagues/${league.id}/standings`));
+      }
     }
   } catch (e) {
     box.className = "muted";
@@ -511,9 +522,62 @@ async function loadStandingsSub(league) {
   }
 }
 
+// Селектор сезона над таблицей. Показывается, если у лиги есть список сезонов.
+async function renderSeasonSelector(league) {
+  const box = document.getElementById("sub-content");
+  // список сезонов лиги (кешируем)
+  let seasons = seasonsCache[league.id];
+  if (seasons === undefined) {
+    try {
+      seasons = await api(`/api/leagues/${league.id}/seasons`);
+    } catch (e) {
+      seasons = [];
+    }
+    seasonsCache[league.id] = seasons;
+  }
+  if (!seasons || !seasons.length) return;   // нет истории — без селектора
+
+  // очищаем контейнер и добавляем выпадающий список
+  box.className = "";
+  box.innerHTML = "";
+  const wrap = document.createElement("div");
+  wrap.className = "season-select-wrap";
+  const label = document.createElement("span");
+  label.className = "season-select-label";
+  label.textContent = t("season") + ":";
+  const sel = document.createElement("select");
+  sel.className = "season-select";
+  // первый вариант — текущий сезон
+  const optCur = document.createElement("option");
+  optCur.value = "";
+  optCur.textContent = t("current_season");
+  sel.appendChild(optCur);
+  for (const s of seasons) {
+    const o = document.createElement("option");
+    o.value = s.code;
+    o.textContent = s.label;
+    if (s.code === selectedSeason) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.addEventListener("change", () => {
+    selectedSeason = sel.value || null;
+    loadStandingsSub(league);
+  });
+  wrap.appendChild(label);
+  wrap.appendChild(sel);
+  box.appendChild(wrap);
+
+  // ниже селектора — контейнер под таблицу
+  const tableBox = document.createElement("div");
+  tableBox.id = "season-standings";
+  box.appendChild(tableBox);
+}
+
 // ===== Под-вкладка «Регулярный чемпионат» =====
 function renderStandings(standings) {
-  const content = document.getElementById("sub-content");
+  // если есть контейнер под селектором сезона — пишем туда, иначе в sub-content
+  const content = document.getElementById("season-standings")
+               || document.getElementById("sub-content");
   if (!standings || standings.length === 0) {
     content.className = "muted";
     content.textContent = t("empty_standings");
