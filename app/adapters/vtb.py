@@ -71,6 +71,65 @@ def fetch_teams() -> list[dict]:
     return teams
 
 
+# Известные сезоны ВТБ для выбора (номера вручную; при добавлении нового
+# сезона прошлый съезжает сюда). code = COMP_ID сезона.
+KNOWN_SEASONS = [
+    {"code": str(COMP_ID), "label": season_mod.VTB_LABEL},   # текущий
+    {"code": "50720", "label": "2025/26"},                   # прошлый
+]
+
+_standings_by_comp: dict = {}
+
+
+def list_seasons() -> list[dict]:
+    """Сезоны ВТБ для выбора в таблице. Убираем дубли по коду (если текущий
+    совпал с одним из прошлых)."""
+    seen, result = set(), []
+    for s in KNOWN_SEASONS:
+        if s["code"] in seen:
+            continue
+        seen.add(s["code"])
+        result.append(s)
+    return result
+
+
+def fetch_standings_for(season_code: str) -> list[dict]:
+    """Таблица ВТБ за КОНКРЕТНЫЙ сезон (по его COMP_ID). С названиями и
+    логотипами команд — для прошлых сезонов их нет в базе. Кешируется."""
+    if season_code in _standings_by_comp:
+        return _standings_by_comp[season_code]
+
+    rows = []
+    try:
+        r = client.get(f"{API}/CompTeamResults/{season_code}", params={"format": "json"})
+        r.raise_for_status()
+        for t in r.json():
+            tid = t.get("TeamID")
+            cn = t.get("CompTeamName") or {}
+            st = t.get("Standings") or {}
+            vp = st.get("VictoryPercent")
+            win_pct = round(vp / 100, 3) if isinstance(vp, (int, float)) else None
+            rows.append({
+                "team_id": f"vtb:{tid}",
+                "league_id": "vtb",
+                "conference": None,
+                "rank": t.get("Place"),
+                "team_name": cn.get("CompTeamNameRu"),
+                "team_short": cn.get("CompTeamShortNameRu"),
+                "team_logo": f"{API}/GetTeamLogo/{tid}?compId={season_code}",
+                "wins": t.get("Won"),
+                "losses": t.get("Lost"),
+                "win_pct": win_pct,
+                "games_back": None,
+                "streak": None,
+            })
+    except Exception as e:
+        print(f"[vtb] таблица сезона {season_code} не получена: {e}")
+
+    _standings_by_comp[season_code] = rows
+    return rows
+
+
 def fetch_standings() -> list[dict]:
     """Турнирная таблица ВТБ (единая, без конференций)."""
     standings = []
@@ -286,3 +345,4 @@ def clear_cache():
     """Сбрасывает кеш адаптера (чтобы автообновление взяло свежие данные)."""
     global _calendar_cache
     _calendar_cache = None
+    _standings_by_comp.clear()
