@@ -1,74 +1,99 @@
-# explore_history.py
-# Разведка: доступны ли ТАБЛИЦЫ ПРОШЛЫХ СЕЗОНОВ по каждой лиге и в каком виде.
-# От этого зависит, как сделать выбор сезона в таблицах.
+# explore_vtb_full.py
+# Разведка ВТБ для двух задач:
+#  1) залит ли НОВЫЙ сезон 2026/27 (проверяем 55613 и соседей — есть ли матчи);
+#  2) номера ПРОШЛЫХ сезонов ВТБ (для выбора сезона в таблице).
 
-import io, sys, json
+import io, sys
+from datetime import datetime
 import httpx
 
 if hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-client = httpx.Client(headers={"User-Agent":"Mozilla/5.0 (compatible; BC/1.0)",
-                               "Accept":"application/json"},
-                      timeout=25, trust_env=False)
+client = httpx.Client(headers={"Accept":"application/json","User-Agent":"Mozilla/5.0 (compatible; BC/1.0)"},
+                      timeout=20, trust_env=False)
+
+API = "https://org.infobasket.su/Widget"
 
 def head(t):
     print("\n"+"="*72); print(t); print("="*72)
 
-# ========== NBA — таблицы прошлых сезонов через ESPN ==========
-head("NBA — таблицы прошлых сезонов (ESPN)")
-STAND = "https://site.api.espn.com/apis/v2/sports/basketball/nba/standings"
-for year in [2027, 2026, 2025, 2024, 2023]:
+def to_iso(gd):
     try:
-        r = client.get(STAND, params={"season": year, "level": "3"})
-        if r.status_code != 200:
-            print(f"  сезон {year}: статус {r.status_code}")
-            continue
-        data = r.json()
-        # считаем команды в таблице
-        cnt = 0
-        for conf in data.get("children", []):
-            for grp in (conf.get("children") or [conf]):
-                st = grp.get("standings") or {}
-                cnt += len(st.get("entries") or [])
-        # если нет children, пробуем прямой standings
-        if cnt == 0:
-            st = data.get("standings") or {}
-            cnt = len(st.get("entries") or [])
-        print(f"  сезон {year}: команд в таблице {cnt}")
-    except Exception as e:
-        print(f"  сезон {year}: ошибка {e}")
+        d,m,y = gd.split("."); return f"{y}-{m}-{d}"
+    except: return None
 
-# ========== Евролига — таблицы прошлых сезонов ==========
-head("Евролига — таблицы прошлых сезонов (EuroLeague API)")
-EL = "https://api-live.euroleague.net"
-for code in ["E2026","E2025","E2024","E2023","E2022"]:
+VTB_CLUBS = {"ЦСКА","Зенит","УНИКС","Локомотив-К","Автодор","БЕТСИТИ ПАРМА",
+             "Енисей","МБА","Самара","Уралмаш","Динамо","ПАРМА","Пари НН","МБА-МАИ"}
+
+def calendar_info(sid):
+    """Матчи сезона по Calendar. Возвращает (кол-во, сыграно, даты, команды)."""
     try:
-        r = client.get(f"{EL}/v1/standings", params={"seasonCode": code, "gameNumber": 34})
-        ok = r.status_code == 200 and (b"<team" in r.content or b"standing" in r.content.lower())
-        size = len(r.content)
-        print(f"  {code}: статус {r.status_code}, размер {size}, похоже на таблицу: {ok}")
-    except Exception as e:
-        print(f"  {code}: ошибка {e}")
+        r = client.get(f"{API}/Calendar/{sid}", params={"format":"json"})
+        if r.status_code != 200 or not r.content:
+            return None
+        games = r.json() or []
+        if not games:
+            return ("empty",)
+        dates = [to_iso(g.get("GameDate","")) for g in games if to_iso(g.get("GameDate",""))]
+        played = sum(1 for g in games if g.get("ScoreA") or g.get("ScoreB"))
+        teams = set()
+        for g in games:
+            for k in ("ShortTeamNameAru","ShortTeamNameBru"):
+                if g.get(k): teams.add(g[k])
+        return ("has", len(games), played, min(dates) if dates else "?",
+                max(dates) if dates else "?", teams)
+    except Exception:
+        return None
 
-# ========== ВТБ — таблицы прошлых сезонов (нужны номера!) ==========
-head("ВТБ — таблицы прошлых сезонов (InfoBasket)")
-print("У ВТБ таблица берётся по COMP_ID. Текущий 50720. Проверим, отдают ли")
-print("прошлые сезоны данные — нужно знать их номера. Пробуем известные:\n")
-API = "https://org.infobasket.su/Widget"
-# 50720 - текущий (2025/26). Прошлые сезоны — номера НЕизвестны, пробуем угадать
-for comp in [50720, 50733]:  # 50720 текущий, 50733 попадался в разведке
+def standings_info(comp):
+    """Таблица по CompTeamResults. Возвращает список команд или None."""
     try:
         r = client.get(f"{API}/CompTeamResults/{comp}", params={"format":"json"})
-        if r.status_code == 200 and r.content:
-            data = r.json()
-            if isinstance(data, list) and data:
-                # даты не тут, но команды есть
-                names = [(t.get("CompTeamName") or {}).get("CompTeamShortNameRu") for t in data[:3]]
-                print(f"  comp={comp}: команд {len(data)}, примеры: {names}")
-    except Exception as e:
-        print(f"  comp={comp}: ошибка {e}")
-print("\n  ВЫВОД по ВТБ: номера прошлых сезонов надо искать отдельно (как искали")
-print("  текущий). Автоматически список сезонов ВТБ не отдаётся.")
+        if r.status_code != 200 or not r.content:
+            return None
+        data = r.json()
+        if not isinstance(data, list) or not data:
+            return None
+        teams = [(t.get("CompTeamName") or {}).get("CompTeamShortNameRu") for t in data]
+        return [t for t in teams if t]
+    except Exception:
+        return None
 
-print("\n\nПришли вывод — поймём, у каких лиг история достаётся легко.")
+# ---------- Задача 1: новый сезон 2026/27 ----------
+head("1. Новый сезон ВТБ 2026/27 — залит ли (проверяем 55613 и соседей)")
+for sid in [55613, 55614, 55615, 55616, 55617, 55618, 55619, 55620]:
+    info = calendar_info(sid)
+    if not info:
+        continue
+    if info[0] == "empty":
+        # календарь пуст, но проверим таблицу — вдруг команды уже есть
+        teams = standings_info(sid)
+        if teams and len(set(teams) & VTB_CLUBS) >= 3:
+            print(f"  comp={sid}: календарь пуст, но таблица есть — команд {len(teams)}: {', '.join(teams[:6])}")
+        continue
+    _, cnt, played, dmin, dmax, teams = info
+    overlap = len(teams & VTB_CLUBS)
+    if overlap >= 3:
+        new = dmax >= "2026-08"
+        mark = "  ← ★ НОВЫЙ СЕЗОН 2026/27" if new else ""
+        print(f"  sid={sid}: матчей {cnt} (сыграно {played}), {dmin}..{dmax}{mark}")
+        print(f"       команды: {', '.join(sorted(teams))}")
+
+# ---------- Задача 2: прошлые сезоны ВТБ ----------
+head("2. Прошлые сезоны ВТБ — ищем номера (для выбора сезона)")
+print("Известно: 50720 = сезон 2025/26. Ищем более ранние (таблицы с клубами ВТБ).\n")
+# сканируем диапазоны, где могут быть прошлые сезоны
+found_seasons = []
+for comp in list(range(50600, 50725)) + list(range(49000, 49100)):
+    teams = standings_info(comp)
+    if not teams:
+        continue
+    overlap = len(set(teams) & VTB_CLUBS)
+    # полноценный сезон ВТБ: 10-13 команд, много клубов ВТБ
+    if overlap >= 5 and 8 <= len(teams) <= 14:
+        print(f"  comp={comp}: команд {len(teams)}, клубов ВТБ {overlap}: {', '.join(teams[:8])}")
+        found_seasons.append(comp)
+
+print(f"\nНайдено кандидатов на сезоны ВТБ: {found_seasons}")
+print("\nПришли вывод — определим, залит ли новый сезон и какие прошлые доступны.")

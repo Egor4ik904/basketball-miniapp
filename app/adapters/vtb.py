@@ -6,6 +6,7 @@
 import httpx
 
 from app import stages
+from app import season as season_mod
 
 client = httpx.Client(
     headers={
@@ -17,9 +18,10 @@ client = httpx.Client(
 )
 
 API = "https://org.infobasket.su/Widget"
-# ПРИМЕЧАНИЕ: id сезонов заданы вручную; в новом сезоне их нужно обновить.
-COMP_ID = 50720    # Регулярный чемпионат ВТБ 2025/26 (таблица, команды, игроки)
-SEASON_ID = 50714  # «контейнер» сезона (календарь: регулярка + плей-офф)
+# Номера сезона берём из season.py — там единый «источник правды», чтобы не
+# дублировать и обновлять в одном месте при новом сезоне.
+COMP_ID = season_mod.VTB_COMP_ID       # чемпионат (таблица, команды, игроки)
+SEASON_ID = season_mod.VTB_SEASON_ID   # контейнер календаря (матчи)
 
 POS_MAP = {1: "PG", 2: "SG", 3: "SF", 4: "PF", 5: "C"}
 
