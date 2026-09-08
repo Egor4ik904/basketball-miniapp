@@ -74,8 +74,10 @@ def fetch_teams() -> list[dict]:
 # Известные сезоны ВТБ для выбора (номера вручную; при добавлении нового
 # сезона прошлый съезжает сюда). code = COMP_ID сезона.
 KNOWN_SEASONS = [
-    {"code": str(COMP_ID), "label": season_mod.VTB_LABEL},   # текущий
-    {"code": "50720", "label": "2025/26"},                   # прошлый
+    # code = COMP_ID (таблица/команды), season_id = номер КАЛЕНДАРЯ (матчи,
+    # плей-офф). У ВТБ они могут отличаться (у прошлого сезона — 50720 и 50714).
+    {"code": str(COMP_ID), "season_id": str(SEASON_ID), "label": season_mod.VTB_LABEL},
+    {"code": "50720", "season_id": "50714", "label": "2025/26"},
 ]
 
 _standings_by_comp: dict = {}
@@ -361,11 +363,18 @@ def fetch_playoff_for(season_code: str) -> list[dict]:
     except Exception as e:
         print(f"[vtb] команды сезона {season_code} не получены: {e}")
 
+    # номер календаря для этого сезона (может отличаться от code = comp)
+    cal_id = season_code
+    for ks in KNOWN_SEASONS:
+        if ks["code"] == season_code:
+            cal_id = ks.get("season_id", season_code)
+            break
+
     rows = []
     try:
-        cal = client.get(f"{API}/Calendar/{season_code}", params={"format": "json"}).json() or []
+        cal = client.get(f"{API}/Calendar/{cal_id}", params={"format": "json"}).json() or []
     except Exception as e:
-        print(f"[vtb] календарь сезона {season_code} не получен: {e}")
+        print(f"[vtb] календарь сезона {cal_id} не получен: {e}")
         cal = []
 
     for g in cal:
