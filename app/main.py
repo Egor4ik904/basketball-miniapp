@@ -582,31 +582,35 @@ def get_seasons_endpoint(lid: str):
 
 @app.get("/api/leagues/{lid}/standings/{season}")
 def get_standings_season_endpoint(lid: str, season: str):
-    """Таблица за КОНКРЕТНЫЙ сезон (для выбора сезона). Тянется из источника.
-    Если сезон ещё не начался (данных/туров нет) — отдаём нулевую таблицу из
-    команд, а не ошибку и не пустоту."""
-    check_entity_id(lid)
-    if not SEASON_CODE_RE.match(season or ""):
-        raise HTTPException(status_code=400, detail="Некорректный сезон")
-    adapter = adapter_for(lid)
-    rows = []
-    if adapter and hasattr(adapter, "fetch_standings_for"):
-        try:
-            rows = adapter.fetch_standings_for(season) or []
-        except Exception as e:
-            print(f"[standings] {lid}/{season}: источник не отдал ({e})")
-            rows = []
-    # сезон не начался или источник пуст — команды с нулями. Защищаемся от
-    # любых ошибок здесь, чтобы эндпоинт никогда не падал с 500 (иначе фронт
-    # показывает «не удалось загрузить»).
-    if not rows:
-        try:
-            rows = _zero_standings(lid)
-        except Exception as e:
-            print(f"[standings] {lid}/{season}: нулевую таблицу не собрать ({e})")
-            rows = []
-    return {"data": rows}
+    """Таблица за КОНКРЕТНЫЙ сезон (для выбора сезона). Никогда не падает с
+    500: при любой ошибке или пустом сезоне отдаёт нулевую таблицу из команд,
+    в крайнем случае — пустой список."""
+    try:
+        check_entity_id(lid)
+        if not SEASON_CODE_RE.match(season or ""):
+            return {"data": []}
 
+        adapter = adapter_for(lid)
+        rows = []
+        if adapter and hasattr(adapter, "fetch_standings_for"):
+            try:
+                rows = adapter.fetch_standings_for(season) or []
+            except Exception as e:
+                print(f"[standings v2] {lid}/{season}: источник не отдал ({e})")
+                rows = []
+
+        if not rows:
+            try:
+                rows = _zero_standings(lid)
+            except Exception as e:
+                print(f"[standings v2] {lid}/{season}: нули не собрать ({e})")
+                rows = []
+
+        return {"data": rows}
+    except Exception as e:
+        # финальный предохранитель — что бы ни случилось, не роняем сервер
+        print(f"[standings v2] {lid}/{season}: непредвиденная ошибка ({e})")
+        return {"data": []}
 
 @app.get("/api/players/{pid}/stats")
 def get_player_stats_endpoint(pid: str):
