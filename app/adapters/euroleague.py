@@ -208,7 +208,8 @@ def fetch_standings_for(season_code: str) -> list[dict]:
             win_pct = None
             if wp:
                 try:
-                    win_pct = round(float(str(wp).replace("%", "")) / 100, 3)
+                    v = float(str(wp).replace("%", "")) / 100
+                    win_pct = round(v, 3) if v == v and abs(v) != float("inf") else None
                 except Exception:
                     win_pct = None
             rows.append({

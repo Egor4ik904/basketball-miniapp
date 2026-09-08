@@ -11,6 +11,21 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+import math
+
+
+def _json_safe(obj):
+    """Рекурсивно заменяет NaN/Infinity (недопустимые в JSON) на None.
+    Без этого ответ с таким числом падает при сериализации в JSON."""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe(v) for v in obj]
+    return obj
 from pydantic import BaseModel
 
 from app.db import (
@@ -510,7 +525,7 @@ def get_standings_endpoint(lid: str):
     if not rows:
         # сезон ещё не начался — отдаём команды с нулями, чтобы таблица была
         rows = _zero_standings(lid)
-    return {"data": rows}
+    return {"data": _json_safe(rows)}
 
 
 # Деление NBA на конференции по ESPN ID команд (для нулевой таблицы межсезонья,
@@ -606,9 +621,8 @@ def get_standings_season_endpoint(lid: str, season: str):
                 print(f"[standings v2] {lid}/{season}: нули не собрать ({e})")
                 rows = []
 
-        return {"data": rows}
+        return {"data": _json_safe(rows)}
     except Exception as e:
-        # финальный предохранитель — что бы ни случилось, не роняем сервер
         print(f"[standings v2] {lid}/{season}: непредвиденная ошибка ({e})")
         return {"data": []}
 
