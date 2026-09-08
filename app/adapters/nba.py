@@ -285,6 +285,63 @@ def _parse_standings(params) -> list[dict]:
     return list(by_team.values())
 
 
+def fetch_playoff_for(season_code: str) -> list[dict]:
+    """Матчи плей-офф NBA за конкретный сезон (год окончания, напр. '2025')
+    — готовые строки для сетки. Плей-офф идёт апрель-июнь года окончания."""
+    try:
+        year = int(season_code)
+    except ValueError:
+        return []
+
+    # имена/логотипы/посев команд этого сезона — из таблицы
+    seeds = {}
+    try:
+        for row in _parse_standings(params={"level": "3", "season": season_code}):
+            seeds[row["team_id"]] = {
+                "name": row.get("team_name"), "short": row.get("team_short"),
+                "logo": row.get("team_logo"), "seed": row.get("rank"),
+                "conf": row.get("conference"),
+            }
+    except Exception as e:
+        print(f"[nba] посевы сезона {season_code} не получены: {e}")
+
+    # события плей-офф: апрель-июнь года окончания
+    rows = []
+    for first, last in [(f"{year}0415", f"{year}0430"),
+                        (f"{year}0501", f"{year}0531"),
+                        (f"{year}0601", f"{year}0625")]:
+        try:
+            r = client.get(f"{ESPN_BASE}/scoreboard",
+                          params={"dates": f"{first}-{last}", "limit": 500})
+            events = r.json().get("events", [])
+        except Exception:
+            continue
+        for event in events:
+            season = event.get("season") or {}
+            if season.get("type") != 3:      # 3 = плей-офф
+                continue
+            g = _parse_event(event)
+            if not g or g.get("stage") != "playoff":
+                continue
+            h = seeds.get(g["home_team_id"], {})
+            a = seeds.get(g["away_team_id"], {})
+            rows.append({
+                "id": g["id"], "game_date": g["game_date"], "datetime": g["datetime"],
+                "status": g["status"],
+                "home_score": g["home_score"], "away_score": g["away_score"],
+                "stage": g["stage"], "stage_label": g["stage_label"],
+                "series_key": g["series_key"], "series_round": g["series_round"],
+                "home_team_id": g["home_team_id"],
+                "home_name": h.get("name"), "home_short": h.get("short"),
+                "home_logo": h.get("logo"), "home_seed": h.get("seed"), "home_conf": h.get("conf"),
+                "away_team_id": g["away_team_id"],
+                "away_name": a.get("name"), "away_short": a.get("short"),
+                "away_logo": a.get("logo"), "away_seed": a.get("seed"), "away_conf": a.get("conf"),
+            })
+    rows.sort(key=lambda r: (r["series_round"] or 0, r["series_key"] or "", r["datetime"]))
+    return rows
+
+
 def fetch_standings() -> list[dict]:
     """Турнирная таблица NBA из ESPN — по строке на команду.
     Дерево: конференции (children) -> дивизионы (children) -> standings.entries."""

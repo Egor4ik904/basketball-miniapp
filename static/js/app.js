@@ -502,16 +502,32 @@ async function loadStandingsSub(league) {
   box.className = "muted";
   box.textContent = t("loading");
   try {
-    if (standingsSubTab === "bracket") {
-      renderBracket(await api(`/api/leagues/${league.id}/bracket`), league);
-      return;
-    }
-
-    // Готовим контейнер: селектор сезона (если есть) + место под таблицу.
-    // Таблица рисуется ВСЕГДА, даже если селектора нет.
+    // Готовим контейнер: селектор сезона (если есть) + место под содержимое.
     box.className = "";
     box.innerHTML = "";
     await renderSeasonSelector(league, box);   // добавит селектор, если сезоны есть
+
+    if (standingsSubTab === "bracket") {
+      // сетка плей-офф за выбранный сезон (или текущий)
+      let tb = document.getElementById("season-standings");
+      if (!tb) {
+        tb = document.createElement("div");
+        tb.id = "season-standings";
+        box.appendChild(tb);
+      }
+      tb.className = "muted";
+      tb.textContent = t("loading");
+      try {
+        const url = selectedSeason
+          ? `/api/leagues/${league.id}/bracket/${selectedSeason}`
+          : `/api/leagues/${league.id}/bracket`;
+        renderBracket(await api(url), league);
+      } catch (inner) {
+        const b = document.getElementById("season-standings");
+        if (b) { b.className = "muted"; b.textContent = t("err_data"); }
+      }
+      return;
+    }
 
     // контейнер под таблицу (создаём, если селектор его не создал)
     let tableBox = document.getElementById("season-standings");
@@ -644,7 +660,8 @@ function renderStandings(standings) {
 
 // ===== Под-вкладка «Плей-офф»: сетка =====
 function renderBracket(rounds, league) {
-  const box = document.getElementById("sub-content");
+  const box = document.getElementById("season-standings")
+           || document.getElementById("sub-content");
   if (!rounds || rounds.length === 0) {
     box.className = "muted";
     box.textContent = t("empty_playoff");

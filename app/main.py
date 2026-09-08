@@ -507,9 +507,31 @@ def get_games_endpoint(lid: str, date: str | None = None):
 
 @app.get("/api/leagues/{lid}/bracket")
 def get_bracket_endpoint(lid: str):
-    """Сетка плей-офф: список кругов, в каждом — серии со счётом и матчами.
-    Пустой список означает, что плей-офф ещё не начался."""
-    return {"data": build_bracket(get_playoff_games(lid))}
+    """Сетка плей-офф ТЕКУЩЕГО сезона: список кругов, в каждом — серии со
+    счётом и матчами. Пустой список — плей-офф ещё не начался."""
+    return {"data": _json_safe(build_bracket(get_playoff_games(lid)))}
+
+
+@app.get("/api/leagues/{lid}/bracket/{season}")
+def get_bracket_season_endpoint(lid: str, season: str):
+    """Сетка плей-офф за КОНКРЕТНЫЙ сезон (для выбора сезона). Матчи плей-офф
+    прошлого сезона тянутся из источника. Если у сезона нет плей-офф (не
+    начался) — пустой список, фронт покажет «плей-офф ещё не начался»."""
+    try:
+        check_entity_id(lid)
+        if not SEASON_CODE_RE.match(season or ""):
+            return {"data": []}
+        adapter = adapter_for(lid)
+        if adapter and hasattr(adapter, "fetch_playoff_for"):
+            try:
+                games = adapter.fetch_playoff_for(season)
+                return {"data": _json_safe(build_bracket(games))}
+            except Exception as e:
+                print(f"[bracket] {lid}/{season}: не получить ({e})")
+        return {"data": []}
+    except Exception as e:
+        print(f"[bracket] {lid}/{season}: ошибка ({e})")
+        return {"data": []}
 
 
 @app.get("/api/leagues/{lid}/news")

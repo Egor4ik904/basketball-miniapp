@@ -313,6 +313,53 @@ def _euro_to_iso(euro_date: str):
         return None
 
 
+def fetch_playoff_for(season_code: str) -> list[dict]:
+    """Матчи плей-офф Евролиги за конкретный сезон — готовые строки для сетки.
+    Плей-офф и Финал четырёх (не регулярка)."""
+    # имена/логотипы/посев команд сезона — из таблицы этого сезона
+    seeds = {}
+    try:
+        for row in fetch_standings_for(season_code):
+            seeds[row["team_id"]] = {
+                "name": row.get("team_name"), "short": row.get("team_short"),
+                "logo": row.get("team_logo"), "seed": row.get("rank"),
+            }
+    except Exception as e:
+        print(f"[euroleague] посевы сезона {season_code} не получены: {e}")
+
+    rows = []
+    for g in _get_results_for(season_code):
+        stage = stages.euroleague(g.get("round"), g.get("group"), g.get("gameday"))
+        if stage.get("stage") != "playoff":
+            continue                       # только плей-офф / финал четырёх
+        iso = _euro_to_iso(g.get("date"))
+        if not iso:
+            continue
+        played = g.get("played") == "true"
+        home_id = f"euroleague:{g.get('homecode')}"
+        away_id = f"euroleague:{g.get('awaycode')}"
+        h = seeds.get(home_id, {})
+        a = seeds.get(away_id, {})
+        rows.append({
+            "id": f"euroleague:{g.get('gamenumber')}",
+            "game_date": iso,
+            "datetime": f"{iso}T{g.get('time') or '00:00'}:00",
+            "status": "final" if played else "scheduled",
+            "home_score": g.get("homescore") if played else None,
+            "away_score": g.get("awayscore") if played else None,
+            "stage": stage.get("stage"), "stage_label": stage.get("stage_label"),
+            "series_key": stage.get("series_key"), "series_round": stage.get("series_round"),
+            "home_team_id": home_id,
+            "home_name": h.get("name"), "home_short": h.get("short"),
+            "home_logo": h.get("logo"), "home_seed": h.get("seed"), "home_conf": None,
+            "away_team_id": away_id,
+            "away_name": a.get("name"), "away_short": a.get("short"),
+            "away_logo": a.get("logo"), "away_seed": a.get("seed"), "away_conf": None,
+        })
+    rows.sort(key=lambda r: (r["series_round"] or 0, r["series_key"] or "", r["datetime"]))
+    return rows
+
+
 def fetch_season_games() -> list[dict]:
     """Все матчи сезона одним махом. Запрос к источнику уже закеширован
     в _get_results(), так что второй раз он не выполняется.

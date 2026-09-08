@@ -341,6 +341,66 @@ def fetch_player_stats(person_id: str) -> dict | None:
     }
 
 
+def fetch_playoff_for(season_code: str) -> list[dict]:
+    """Матчи плей-офф ВТБ за конкретный сезон — готовые строки для сетки
+    (build_bracket). season_code — это COMP_ID сезона (он же контейнер
+    календаря у ВТБ)."""
+    # имена/логотипы команд сезона — из его таблицы
+    names = {}
+    try:
+        for t in client.get(f"{API}/CompTeamResults/{season_code}",
+                            params={"format": "json"}).json():
+            tid = t.get("TeamID")
+            cn = t.get("CompTeamName") or {}
+            names[f"vtb:{tid}"] = {
+                "name": cn.get("CompTeamNameRu"),
+                "short": cn.get("CompTeamShortNameRu"),
+                "logo": f"{API}/GetTeamLogo/{tid}?compId={season_code}",
+                "seed": t.get("Place"),
+            }
+    except Exception as e:
+        print(f"[vtb] команды сезона {season_code} не получены: {e}")
+
+    rows = []
+    try:
+        cal = client.get(f"{API}/Calendar/{season_code}", params={"format": "json"}).json() or []
+    except Exception as e:
+        print(f"[vtb] календарь сезона {season_code} не получен: {e}")
+        cal = []
+
+    for g in cal:
+        stage = stages.vtb(g.get("CompNameRu"))
+        if stage.get("stage") != "playoff":
+            continue                       # только плей-офф
+        iso = _date_to_iso(g.get("GameDate"))
+        score_a, score_b = g.get("ScoreA"), g.get("ScoreB")
+        played = bool(score_a or score_b)
+        home_id = f"vtb:{g.get('TeamAid')}"
+        away_id = f"vtb:{g.get('TeamBid')}"
+        h = names.get(home_id, {})
+        a = names.get(away_id, {})
+        rows.append({
+            "id": f"vtb:{g.get('GameID')}",
+            "game_date": iso,
+            "datetime": f"{iso}T{g.get('GameTime') or '00:00'}:00",
+            "status": "final" if played else "scheduled",
+            "home_score": str(score_a) if played else None,
+            "away_score": str(score_b) if played else None,
+            "stage": stage.get("stage"),
+            "stage_label": stage.get("stage_label"),
+            "series_key": stage.get("series_key"),
+            "series_round": stage.get("series_round"),
+            "home_team_id": home_id,
+            "home_name": h.get("name"), "home_short": h.get("short"),
+            "home_logo": h.get("logo"), "home_seed": h.get("seed"), "home_conf": None,
+            "away_team_id": away_id,
+            "away_name": a.get("name"), "away_short": a.get("short"),
+            "away_logo": a.get("logo"), "away_seed": a.get("seed"), "away_conf": None,
+        })
+    rows.sort(key=lambda r: (r["series_round"] or 0, r["series_key"] or "", r["datetime"]))
+    return rows
+
+
 def clear_cache():
     """Сбрасывает кеш адаптера (чтобы автообновление взяло свежие данные)."""
     global _calendar_cache
