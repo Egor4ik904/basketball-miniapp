@@ -592,12 +592,19 @@ def get_standings_season_endpoint(lid: str, season: str):
     rows = []
     if adapter and hasattr(adapter, "fetch_standings_for"):
         try:
-            rows = adapter.fetch_standings_for(season)
+            rows = adapter.fetch_standings_for(season) or []
         except Exception as e:
-            print(f"[standings] {lid}/{season}: не получить ({e}) — отдаю нули")
+            print(f"[standings] {lid}/{season}: источник не отдал ({e})")
             rows = []
+    # сезон не начался или источник пуст — команды с нулями. Защищаемся от
+    # любых ошибок здесь, чтобы эндпоинт никогда не падал с 500 (иначе фронт
+    # показывает «не удалось загрузить»).
     if not rows:
-        rows = _zero_standings(lid)      # сезон не начался — команды с нулями
+        try:
+            rows = _zero_standings(lid)
+        except Exception as e:
+            print(f"[standings] {lid}/{season}: нулевую таблицу не собрать ({e})")
+            rows = []
     return {"data": rows}
 
 
