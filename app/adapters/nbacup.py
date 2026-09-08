@@ -266,6 +266,91 @@ def fetch_standings() -> list[dict]:
     return rows
 
 
+# Прошлые розыгрыши NBA Cup для выбора сезона (год = год проведения).
+# Текущий (2026) идёт как основной. Прошлые — только плей-офф (составы групп
+# прошлых лет не зашиты, поэтому их таблицы не строим).
+CUP_EDITIONS = [
+    {"code": "2026", "label": "2026"},   # текущий
+    {"code": "2024", "label": "2024"},   # прошлый (2023 у ESPN не находится)
+]
+
+
+def list_seasons() -> list[dict]:
+    """Розыгрыши NBA Cup для выбора сезона."""
+    return list(CUP_EDITIONS)
+
+
+# год текущего розыгрыша (для него зашиты составы групп)
+CURRENT_EDITION = "2026"
+
+
+def fetch_standings_for(season_code: str) -> list[dict]:
+    """Групповые таблицы NBA Cup. Считаем только для текущего розыгрыша
+    (составы групп зашиты для него). Для прошлых лет — пусто."""
+    if season_code == CURRENT_EDITION:
+        return fetch_standings()      # обычные вычисляемые группы
+    return []                         # прошлые розыгрыши — без групповых таблиц
+
+
+def fetch_playoff_for(season_code: str) -> list[dict]:
+    """Матчи плей-офф NBA Cup за конкретный розыгрыш (год) — для сетки.
+    Плей-офф (четвертьфиналы, полуфиналы, финал) идёт в декабре года."""
+    try:
+        year = int(season_code)
+    except ValueError:
+        return []
+
+    # имена/логотипы команд — из общего справочника NBA (не зависят от года
+    # сильно; для прошлых лет это приблизительно, но узнаваемо)
+    team_info = {}
+    try:
+        for t in nba_adapter.fetch_teams():
+            eid = t["id"].split(":")[1]
+            team_info[f"nbacup:{eid}"] = {
+                "name": t.get("name"), "short": t.get("short_name"),
+                "logo": t.get("logo_url"),
+            }
+    except Exception:
+        pass
+
+    rows = []
+    # плей-офф Кубка — декабрь года
+    for first, last in [(f"{year}1201", f"{year}1231")]:
+        try:
+            r = client.get(f"{ESPN_BASE}/scoreboard",
+                          params={"dates": f"{first}-{last}", "limit": 300})
+            events = r.json().get("events", [])
+        except Exception:
+            continue
+        for event in events:
+            comp = (event.get("competitions") or [{}])[0]
+            notes = comp.get("notes") or []
+            headline = notes[0].get("headline", "") if notes else ""
+            stage_type, stage_label = _cup_stage_from_headline(headline)
+            if stage_type != "playoff":
+                continue                   # только плей-офф Кубка
+            parsed = _parse_cup_event(event, stage_type, stage_label, headline)
+            if not parsed:
+                continue
+            h = team_info.get(parsed["home_team_id"], {})
+            a = team_info.get(parsed["away_team_id"], {})
+            rows.append({
+                "id": parsed["id"], "game_date": parsed["game_date"],
+                "datetime": parsed["datetime"], "status": parsed["status"],
+                "home_score": parsed["home_score"], "away_score": parsed["away_score"],
+                "stage": parsed["stage"], "stage_label": parsed["stage_label"],
+                "series_key": parsed["series_key"], "series_round": parsed["series_round"],
+                "home_team_id": parsed["home_team_id"],
+                "home_name": h.get("name"), "home_short": h.get("short"),
+                "home_logo": h.get("logo"), "home_seed": None, "home_conf": None,
+                "away_team_id": parsed["away_team_id"],
+                "away_name": a.get("name"), "away_short": a.get("short"),
+                "away_logo": a.get("logo"), "away_seed": None, "away_conf": None,
+            })
+    rows.sort(key=lambda r: (r["series_round"] or 0, r["series_key"] or "", r["datetime"]))
+    return rows
+
+
 def clear_cache():
     """Кеша нет — данные каждый раз свежие из расписания."""
     return

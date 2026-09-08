@@ -1,5 +1,7 @@
-# explore_playoff_history.py
-# Проверяем, достаются ли матчи ПЛЕЙ-ОФФ прошлых сезонов по трём лигам.
+# explore_cups_history.py
+# Проверяем историю кубков:
+#  1) NBA Cup — прошлые розыгрыши (2023, 2024): достаются ли матчи с пометкой Cup?
+#  2) Winline Basket Cup — прошлый розыгрыш (52553) и его группы (52554/52555).
 
 import io, sys
 from datetime import date, timedelta
@@ -13,58 +15,60 @@ client = httpx.Client(headers={"Accept":"application/json","User-Agent":"Mozilla
 def head(t):
     print("\n"+"="*72); print(t); print("="*72)
 
-# ---------- NBA: плей-офф прошлого сезона (апрель-июнь 2025) ----------
-head("NBA — плей-офф прошлого сезона (2024/25, апрель-июнь 2025)")
+# ---------- NBA Cup: прошлые розыгрыши ----------
+head("NBA Cup — прошлые розыгрыши (турнир идёт ноябрь-декабрь)")
 ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
-po_count = 0
-for m in [("20250420","20250430"),("20250501","20250531"),("20250601","20250625")]:
-    try:
-        r = client.get(f"{ESPN}/scoreboard", params={"dates":f"{m[0]}-{m[1]}","limit":300})
-        events = r.json().get("events",[])
-        for e in events:
-            comp = (e.get("competitions") or [{}])[0]
-            notes = comp.get("notes") or []
-            hl = notes[0].get("headline","") if notes else ""
-            season = e.get("season") or {}
-            # плей-офф: season.type == 3
-            if season.get("type") == 3 or "playoff" in hl.lower() or "finals" in hl.lower():
-                po_count += 1
-    except Exception as ex:
-        print(f"  ошибка: {ex}")
-print(f"  матчей плей-офф найдено: {po_count}")
-print(f"  -> {'✅ достаются' if po_count > 10 else '⚠️ мало/нет'}")
+# NBA Cup: 2023 (ноя-дек 2023), 2024 (ноя-дек 2024), 2025 (ноя-дек 2025)
+for year in [2023, 2024, 2025]:
+    total_cup = 0
+    stages_found = set()
+    # сканируем ноябрь-декабрь этого года
+    d = date(year, 11, 1)
+    end = date(year, 12, 20)
+    while d <= end:
+        ds = d.strftime("%Y%m%d")
+        try:
+            r = client.get(f"{ESPN}/scoreboard", params={"dates":ds})
+            for e in r.json().get("events",[]):
+                comp = (e.get("competitions") or [{}])[0]
+                notes = comp.get("notes") or []
+                hl = notes[0].get("headline","") if notes else ""
+                if "cup" in hl.lower() or "in-season" in hl.lower():
+                    total_cup += 1
+                    stages_found.add(hl)
+        except Exception:
+            pass
+        d += timedelta(days=7)   # шаг неделю для скорости
+    mark = "✅ есть" if total_cup > 5 else "⚠️ мало/нет"
+    print(f"  {year}: матчей Cup ~{total_cup} (выборка) {mark}")
+    if stages_found:
+        print(f"       стадии: {stages_found}")
 
-# ---------- Евролига: плей-офф E2025 ----------
-head("Евролига — плей-офф прошлого сезона (E2025)")
-EL = "https://api-live.euroleague.net"
-try:
-    r = client.get(f"{EL}/v1/results", params={"seasonCode":"E2025"})
-    content = r.content.decode("utf-8", "replace")
-    # плей-офф матчи помечены round=PO/FF/PI
-    import re
-    po = content.count('round="PO"') + content.count("'PO'")
-    ff = content.count('round="FF"')
-    # грубо: ищем game с плей-офф раундами
-    po_games = len(re.findall(r'phaseType.{0,30}(Playoffs|Final Four)', content))
-    print(f"  размер ответа: {len(content)}, упоминаний PO: {po}, FF: {ff}")
-    print(f"  -> {'✅ данные есть' if len(content) > 3000 else '⚠️ проверить'}")
-except Exception as ex:
-    print(f"  ошибка: {ex}")
-
-# ---------- ВТБ: плей-офф прошлого сезона (50714) ----------
-head("ВТБ — плей-офф прошлого сезона (50714)")
+# ---------- Winline Cup: прошлый розыгрыш ----------
+head("Winline Basket Cup — прошлый розыгрыш (52553) и группы")
 API = "https://org.infobasket.su/Widget"
-try:
-    r = client.get(f"{API}/Calendar/50714", params={"format":"json"})
-    games = r.json() or []
-    # плей-офф: CompNameRu содержит финал/полуфинал
-    po = [g for g in games if any(w in (g.get("CompNameRu") or "").lower()
-          for w in ("финал","1/4","1/2","плей"))]
-    print(f"  всего матчей: {len(games)}, плей-офф: {len(po)}")
-    stages_set = set(g.get("CompNameRu") for g in po)
-    print(f"  стадии плей-офф: {stages_set}")
-    print(f"  -> {'✅ достаются' if len(po) > 3 else '⚠️ мало/нет'}")
-except Exception as ex:
-    print(f"  ошибка: {ex}")
+def to_iso(gd):
+    try:
+        d,m,y = gd.split("."); return f"{y}-{m}-{d}"
+    except: return None
 
-print("\n\nПришли вывод — определим, у каких лиг плей-офф прошлых сезонов доступен.")
+# календарь кубка
+try:
+    r = client.get(f"{API}/Calendar/52553", params={"format":"json"})
+    games = r.json() or []
+    dates = [to_iso(g.get("GameDate","")) for g in games if to_iso(g.get("GameDate",""))]
+    played = sum(1 for g in games if g.get("ScoreA") or g.get("ScoreB"))
+    print(f"  52553: матчей {len(games)}, сыграно {played}, даты {min(dates)}..{max(dates)}")
+except Exception as e:
+    print(f"  52553 ошибка: {e}")
+
+# группы
+for gid, gname in [(52554,"Группа A"),(52555,"Группа B")]:
+    try:
+        r = client.get(f"{API}/CompTeamResults/{gid}", params={"format":"json"})
+        teams = [(t.get("CompTeamName") or {}).get("CompTeamShortNameRu") for t in r.json()]
+        print(f"  {gname} ({gid}): {', '.join(t for t in teams if t)}")
+    except Exception as e:
+        print(f"  {gname} ошибка: {e}")
+
+print("\n\nПришли вывод — поймём, есть ли история у NBA Cup и подтвердим Winline Cup.")

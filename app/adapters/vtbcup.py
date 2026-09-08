@@ -31,6 +31,14 @@ GROUP_B_ID = 52555           # Группа B (таблица)
 GROUP_A_LABEL = "Группа A"
 GROUP_B_LABEL = "Группа B"
 
+# Розыгрыши кубка для выбора сезона. У каждого свои номера: comp (турнир и
+# календарь) и номера двух групп. При новом розыгрыше добавить его сюда
+# первым (номера с сайта wbc.vtb-league.com).
+CUP_EDITIONS = [
+    {"code": "52553", "label": "2025/26",
+     "group_a": "52554", "group_b": "52555"},
+]
+
 POS_MAP = {1: "PG", 2: "SG", 3: "SF", 4: "PF", 5: "C"}
 
 
@@ -284,6 +292,91 @@ def fetch_player_stats(person_id: str) -> dict | None:
         "fg3_pct": _comma(st.get("Shot3Percent")),
         "ft_pct": _comma(st.get("Shot1Percent")),
     }
+
+
+def list_seasons() -> list[dict]:
+    """Розыгрыши кубка для выбора сезона (новые сверху)."""
+    return [{"code": e["code"], "label": e["label"]} for e in CUP_EDITIONS]
+
+
+def _edition(code):
+    """Находит розыгрыш по коду; по умолчанию — первый (текущий)."""
+    for e in CUP_EDITIONS:
+        if e["code"] == code:
+            return e
+    return CUP_EDITIONS[0] if CUP_EDITIONS else None
+
+
+def fetch_standings_for(season_code: str) -> list[dict]:
+    """Таблицы обеих групп за КОНКРЕТНЫЙ розыгрыш кубка. Каждая строка помечена
+    группой (conference) — фронт разложит по группам."""
+    e = _edition(season_code)
+    if not e:
+        return []
+    rows = []
+    rows += _standings_for_group(int(e["group_a"]), GROUP_A_LABEL)
+    rows += _standings_for_group(int(e["group_b"]), GROUP_B_LABEL)
+    return rows
+
+
+def fetch_playoff_for(season_code: str) -> list[dict]:
+    """Матчи плей-офф (финал четырёх) за КОНКРЕТНЫЙ розыгрыш — для сетки."""
+    e = _edition(season_code)
+    if not e:
+        return []
+    comp = e["code"]
+    # имена/логотипы команд розыгрыша
+    names = {}
+    try:
+        for t in client.get(f"{API}/CompTeamResults/{comp}",
+                            params={"format": "json"}).json():
+            tid = t.get("TeamID")
+            cn = t.get("CompTeamName") or {}
+            names[f"vtbcup:{tid}"] = {
+                "name": cn.get("CompTeamNameRu"),
+                "short": cn.get("CompTeamShortNameRu"),
+                "logo": f"{API}/GetTeamLogo/{tid}?compId={comp}",
+                "seed": t.get("Place"),
+            }
+    except Exception as ex:
+        print(f"[vtbcup] команды розыгрыша {comp} не получены: {ex}")
+
+    rows = []
+    try:
+        cal = client.get(f"{API}/Calendar/{comp}", params={"format": "json"}).json() or []
+    except Exception as ex:
+        print(f"[vtbcup] календарь розыгрыша {comp} не получен: {ex}")
+        cal = []
+
+    for g in cal:
+        stage = stages.vtbcup(g.get("CompNameRu"), g.get("GameID"))
+        if stage.get("stage") != "playoff":
+            continue
+        iso = _date_to_iso(g.get("GameDate"))
+        score_a, score_b = g.get("ScoreA"), g.get("ScoreB")
+        played = bool(score_a or score_b)
+        home_id = f"vtbcup:{g.get('TeamAid')}"
+        away_id = f"vtbcup:{g.get('TeamBid')}"
+        h = names.get(home_id, {})
+        a = names.get(away_id, {})
+        rows.append({
+            "id": f"vtbcup:{g.get('GameID')}",
+            "game_date": iso,
+            "datetime": f"{iso}T{g.get('GameTime') or '00:00'}:00",
+            "status": "final" if played else "scheduled",
+            "home_score": str(score_a) if played else None,
+            "away_score": str(score_b) if played else None,
+            "stage": stage.get("stage"), "stage_label": stage.get("stage_label"),
+            "series_key": stage.get("series_key"), "series_round": stage.get("series_round"),
+            "home_team_id": home_id,
+            "home_name": h.get("name"), "home_short": h.get("short"),
+            "home_logo": h.get("logo"), "home_seed": h.get("seed"), "home_conf": None,
+            "away_team_id": away_id,
+            "away_name": a.get("name"), "away_short": a.get("short"),
+            "away_logo": a.get("logo"), "away_seed": a.get("seed"), "away_conf": None,
+        })
+    rows.sort(key=lambda r: (r["series_round"] or 0, r["series_key"] or "", r["datetime"]))
+    return rows
 
 
 def clear_cache():
