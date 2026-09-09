@@ -92,6 +92,7 @@ def _standings_for_group(comp_id, group_label) -> list[dict]:
     rows = []
     for t in _comp_team_results(comp_id):
         tid = t.get("TeamID")
+        cn = t.get("CompTeamName") or {}
         st = t.get("Standings") or {}
         vp = st.get("VictoryPercent")
         win_pct = round(vp / 100, 3) if isinstance(vp, (int, float)) else None
@@ -100,6 +101,9 @@ def _standings_for_group(comp_id, group_label) -> list[dict]:
             "league_id": "vtbcup",
             "conference": group_label,      # <- группа как «конференция»
             "rank": t.get("Place"),
+            "team_name": cn.get("CompTeamNameRu"),
+            "team_short": cn.get("CompTeamShortNameRu"),
+            "team_logo": f"{API}/GetTeamLogo/{tid}?compId={comp_id}",
             "wins": t.get("Won"),
             "losses": t.get("Lost"),
             "win_pct": win_pct,

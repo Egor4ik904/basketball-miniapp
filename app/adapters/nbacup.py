@@ -240,16 +240,31 @@ def fetch_standings() -> list[dict]:
         else:
             stats[a]["w"] += 1; stats[h]["l"] += 1
 
+    # справочник имён/логотипов команд (по ESPN id) — чтобы таблица была с
+    # названиями и при выборе сезона (там фронт не берёт их из базы)
+    info = {}
+    try:
+        for tm in nba_adapter.fetch_teams():
+            eid = int(tm["id"].split(":")[1])
+            info[eid] = {"name": tm.get("name"), "short": tm.get("short_name"),
+                         "logo": tm.get("logo_url")}
+    except Exception:
+        pass
+
     # формируем строки таблицы, сгруппированные и отсортированные внутри группы
     rows = []
     for gname, ids in GROUPS.items():
         group_rows = []
         for tid in ids:
             s = stats.get(tid, {"w": 0, "l": 0, "diff": 0})
+            ti = info.get(tid, {})
             group_rows.append({
                 "team_id": f"nbacup:{tid}",
                 "league_id": "nbacup",
                 "conference": gname,           # группа как «конференция»
+                "team_name": ti.get("name"),
+                "team_short": ti.get("short"),
+                "team_logo": ti.get("logo"),
                 "wins": s["w"],
                 "losses": s["l"],
                 "win_pct": round(s["w"] / (s["w"] + s["l"]), 3) if (s["w"] + s["l"]) else None,
