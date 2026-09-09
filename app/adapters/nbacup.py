@@ -29,6 +29,11 @@ client = httpx.Client(
 CUP_START = "2026-10-28"
 CUP_END = "2026-12-15"
 
+# Плей-офф NBA Cup пока не показываем: текущий розыгрыш ещё не начался, а в
+# базе могли остаться матчи прошлого розыгрыша. Снять флаг, когда турнир
+# стартует и появятся реальные матчи плей-офф.
+playoff_disabled = True
+
 # Составы 6 групп по ESPN ID команд (сезон 2026/27). Обновлять ежегодно.
 # ESPN ID: Atlanta1 Boston2 NewOrleans3 Chicago4 Cleveland5 Dallas6 Denver7
 # Detroit8 GoldenState9 Houston10 Indiana11 LAClippers12 LALakers13 Miami14

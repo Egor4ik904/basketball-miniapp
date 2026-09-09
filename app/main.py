@@ -509,6 +509,9 @@ def get_games_endpoint(lid: str, date: str | None = None):
 def get_bracket_endpoint(lid: str):
     """Сетка плей-офф ТЕКУЩЕГО сезона: список кругов, в каждом — серии со
     счётом и матчами. Пустой список — плей-офф ещё не начался."""
+    adapter = adapter_for(lid)
+    if adapter and getattr(adapter, "playoff_disabled", False):
+        return {"data": []}          # плей-офф у этой лиги временно отключён
     return {"data": _json_safe(build_bracket(get_playoff_games(lid)))}
 
 
